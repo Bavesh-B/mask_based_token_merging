@@ -14,7 +14,7 @@ import logging
 import torch
 import warnings
 from lightning.pytorch import cli
-from lightning.pytorch.callbacks import ModelSummary, LearningRateMonitor
+from lightning.pytorch.callbacks import ModelSummary, LearningRateMonitor, ModelCheckpoint
 from lightning.pytorch.loops.training_epoch_loop import _TrainingEpochLoop
 from lightning.pytorch.loops.fetchers import _DataFetcher, _DataLoaderIterDataFetcher
 
@@ -140,6 +140,8 @@ class LightningCLI(cli.LightningCLI):
         )
 
     def fit(self, model, **kwargs):
+        if hasattr(self.trainer.logger, "log_model"):
+            self.trainer.logger._log_model = False
         if hasattr(self.trainer.logger.experiment, "log_code"):
             is_gitignored = parse_gitignore(".gitignore")
             include_fn = lambda path: path.endswith(".py") or path.endswith(".yaml")
@@ -171,6 +173,12 @@ def cli_main():
             "callbacks": [
                 ModelSummary(max_depth=3),
                 LearningRateMonitor(logging_interval="epoch"),
+                ModelCheckpoint(
+                    dirpath="checkpoints",
+                    filename="last",
+                    save_last=True,
+                    save_top_k=0,
+                ),
             ],
             "devices": 1,
             "gradient_clip_val": 0.01,
