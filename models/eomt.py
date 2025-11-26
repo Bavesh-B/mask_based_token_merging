@@ -23,6 +23,7 @@ class EoMT(nn.Module):
         num_q,
         num_blocks=4,
         masked_attn_enabled=True,
+        mask_logits_guided_token_merge=False,
     ):
         super().__init__()
         self.encoder = encoder
@@ -30,7 +31,7 @@ class EoMT(nn.Module):
         self.num_blocks = num_blocks
         self.masked_attn_enabled = masked_attn_enabled
 
-        self.register_buffer("attn_mask_probs", torch.ones(num_blocks))
+        self.register_buffer("attn_mask_probs", torch.ones(self.num_blocks))
 
         self.q = nn.Embedding(num_q, self.encoder.backbone.embed_dim)
 
@@ -51,6 +52,8 @@ class EoMT(nn.Module):
         self.upscale = nn.Sequential(
             *[ScaleBlock(self.encoder.backbone.embed_dim) for _ in range(num_upscale)],
         )
+
+        self.mask_logits_guided_token_merge = mask_logits_guided_token_merge
 
     def _predict(self, x: torch.Tensor):
         q = x[:, : self.num_q, :]
@@ -194,6 +197,38 @@ class EoMT(nn.Module):
             elif hasattr(block, "layer_scale2"):
                 x = x + block.layer_scale2(mlp_out)
 
+            if self.mask_logits_guided_token_merge:
+                if i == len(self.encoder.backbone.blocks) - self.num_blocks:
+                    mask_logits, class_logits = self._predict(self.encoder.backbone.norm(x)) # [B, N, 128, 128]
+                    interpolated = F.interpolate(
+                        mask_logits,
+                        self.encoder.backbone.patch_embed.grid_size,
+                        mode="bilinear",
+                    ) # [B, N, 32, 32]
+                    interpolated = interpolated.view(interpolated.size(0), interpolated.size(1), -1)
+                    vision_token_masks = torch.softmax(interpolated, dim=1)
+                    vision_tokens = x[:, self.num_q + self.encoder.backbone.num_prefix_tokens :, :]
+                    mask = vision_token_masks.float()
+                    vision = vision_tokens.unsqueeze(1)
+                    masked_sum = (mask.unsqueeze(-1) * vision).sum(dim=2)
+                    counts = mask.sum(dim=2, keepdim=True)
+                    counts = counts.clamp(min=1e-6)
+                    fused = masked_sum / counts
+
+                    x = torch.cat(
+                        (x[:, : self.num_q + self.encoder.backbone.num_prefix_tokens, :], fused), dim=1
+                    )
+                
+                if i == len(self.encoder.backbone.blocks) - 1:
+                    fused = x[:, self.num_q + self.encoder.backbone.num_prefix_tokens :, :]
+                    fused_expanded = fused.unsqueeze(2)
+                    mask_expanded = mask.unsqueeze(-1)
+                    reproj_sum = (mask_expanded * fused_expanded).sum(dim=1)
+                    reproj_count = mask.sum(dim=1, keepdim=False).clamp(min=1e-6).unsqueeze(-1)  # [B, HW, 1]
+                    reprojected_tokens = reproj_sum / reproj_count
+                    x = torch.cat(
+                        (x[:, : self.num_q + self.encoder.backbone.num_prefix_tokens, :], reprojected_tokens), dim=1
+                    )
         mask_logits, class_logits = self._predict(self.encoder.backbone.norm(x))
         mask_logits_per_layer.append(mask_logits)
         class_logits_per_layer.append(class_logits)
