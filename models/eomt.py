@@ -11,6 +11,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import math
+import warnings
 
 from models.scale_block import ScaleBlock
 
@@ -24,6 +25,7 @@ class EoMT(nn.Module):
         num_blocks=4,
         masked_attn_enabled=True,
         mask_logits_guided_token_merge=False,
+        token_merge_layers: list=None,
     ):
         super().__init__()
         self.encoder = encoder
@@ -54,6 +56,11 @@ class EoMT(nn.Module):
         )
 
         self.mask_logits_guided_token_merge = mask_logits_guided_token_merge
+        if token_merge_layers is not None:
+            self.token_merge_layers = sorted(token_merge_layers)
+            assert self.token_merge_layers[0] >= len(self.encoder.backbone.blocks) - self.num_blocks
+        else:
+            self.token_merge_layers = [len(self.encoder.backbone.blocks) - self.num_blocks]
 
     def _predict(self, x: torch.Tensor):
         q = x[:, : self.num_q, :]
@@ -150,6 +157,50 @@ class EoMT(nn.Module):
         )
         return attn_mask
 
+    def _merge_tokens(self, x: torch.Tensor):
+        # Compute token merge masks
+        mask_logits, _ = self._predict(self.encoder.backbone.norm(x)) # [B, N, 128, 128]
+        interpolated = F.interpolate(
+            mask_logits,
+            self.encoder.backbone.patch_embed.grid_size,
+            mode="bilinear",
+        ) # [B, N, 32, 32]
+        interpolated = interpolated.view(interpolated.size(0), interpolated.size(1), -1)
+        vision_token_masks = torch.softmax(interpolated, dim=1)
+
+        # Merge tokens
+        vision_tokens = x[:, self.num_q + self.encoder.backbone.num_prefix_tokens :, :]
+        mask = vision_token_masks.float()
+        vision = vision_tokens.unsqueeze(1)
+        masked_sum = (mask.unsqueeze(-1) * vision).sum(dim=2)
+        counts = mask.sum(dim=2, keepdim=True)
+        counts = counts.clamp(min=1e-6)
+        fused = masked_sum / counts
+
+        x = torch.cat(
+            (x[:, : self.num_q + self.encoder.backbone.num_prefix_tokens, :], fused), dim=1
+        )
+
+        return x, mask
+
+    def _unmerge_tokens(self, x: torch.Tensor, mask: torch.Tensor):
+        # unmerge tokens
+        fused = x[:, self.num_q + self.encoder.backbone.num_prefix_tokens :, :]
+        fused_expanded = fused.unsqueeze(2)
+        mask_expanded = mask.unsqueeze(-1)
+        reproj_sum = (mask_expanded * fused_expanded).sum(dim=1)
+        reproj_count = mask.sum(dim=1, keepdim=False).clamp(min=1e-6).unsqueeze(-1)  # [B, HW, 1]
+        reprojected_tokens = reproj_sum / reproj_count
+        x = torch.cat(
+            (x[:, : self.num_q + self.encoder.backbone.num_prefix_tokens, :], reprojected_tokens), dim=1
+        )
+        return x
+
+    def _remerge_tokens(self, x: torch.Tensor, mask: torch.Tensor):
+        x = self._unmerge_tokens(x, mask)
+        x, mask = self._merge_tokens(x)
+        return x, mask
+
     def forward(self, x: torch.Tensor):
         x = (x - self.encoder.pixel_mean) / self.encoder.pixel_std
 
@@ -198,37 +249,21 @@ class EoMT(nn.Module):
                 x = x + block.layer_scale2(mlp_out)
 
             if self.mask_logits_guided_token_merge:
-                if i == len(self.encoder.backbone.blocks) - self.num_blocks:
-                    mask_logits, class_logits = self._predict(self.encoder.backbone.norm(x)) # [B, N, 128, 128]
-                    interpolated = F.interpolate(
-                        mask_logits,
-                        self.encoder.backbone.patch_embed.grid_size,
-                        mode="bilinear",
-                    ) # [B, N, 32, 32]
-                    interpolated = interpolated.view(interpolated.size(0), interpolated.size(1), -1)
-                    vision_token_masks = torch.softmax(interpolated, dim=1)
-                    vision_tokens = x[:, self.num_q + self.encoder.backbone.num_prefix_tokens :, :]
-                    mask = vision_token_masks.float()
-                    vision = vision_tokens.unsqueeze(1)
-                    masked_sum = (mask.unsqueeze(-1) * vision).sum(dim=2)
-                    counts = mask.sum(dim=2, keepdim=True)
-                    counts = counts.clamp(min=1e-6)
-                    fused = masked_sum / counts
-
-                    x = torch.cat(
-                        (x[:, : self.num_q + self.encoder.backbone.num_prefix_tokens, :], fused), dim=1
-                    )
-                
-                if i == len(self.encoder.backbone.blocks) - 1:
-                    fused = x[:, self.num_q + self.encoder.backbone.num_prefix_tokens :, :]
-                    fused_expanded = fused.unsqueeze(2)
-                    mask_expanded = mask.unsqueeze(-1)
-                    reproj_sum = (mask_expanded * fused_expanded).sum(dim=1)
-                    reproj_count = mask.sum(dim=1, keepdim=False).clamp(min=1e-6).unsqueeze(-1)  # [B, HW, 1]
-                    reprojected_tokens = reproj_sum / reproj_count
-                    x = torch.cat(
-                        (x[:, : self.num_q + self.encoder.backbone.num_prefix_tokens, :], reprojected_tokens), dim=1
-                    )
+                # Initial token merge
+                if i == self.token_merge_layers[0]:
+                    x, mask = self._merge_tokens(x)
+                # Re-merging of tokens
+                elif i in self.token_merge_layers[1:]:
+                    x, mask = self._remerge_tokens(x, mask)
+                # Final unmerge
+                elif i == len(self.encoder.backbone.blocks) - 1:
+                    if x.shape[1] == self.num_q + self.num_q + self.encoder.backbone.num_prefix_tokens:
+                        x = self._unmerge_tokens(x, mask)
+                    elif x.shape[1] == self.num_q + self.encoder.backbone.num_prefix_tokens + self.encoder.backbone.patch_embed.num_patches:
+                        warnings.warn("Final unmerge skipped as number of tokens matches original.")
+                    else:
+                        raise ValueError("Unexpected number of tokens during final unmerge.")
+                    
         mask_logits, class_logits = self._predict(self.encoder.backbone.norm(x))
         mask_logits_per_layer.append(mask_logits)
         class_logits_per_layer.append(class_logits)

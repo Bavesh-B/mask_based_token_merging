@@ -1,0 +1,24 @@
+trainer:
+  max_epochs: 31
+  logger:
+    class_path: lightning.pytorch.loggers.wandb.WandbLogger
+    init_args:
+      resume: allow
+      project: "eomt"
+      name: "ade20k_semantic_eomt_large_512"
+model:
+  class_path: training.mask_classification_semantic.MaskClassificationSemantic
+  init_args:
+    attn_mask_annealing_enabled: False
+    network:
+      class_path: models.eomt.EoMT
+      init_args:
+        num_q: 100
+        num_blocks: 16
+        masked_attn_enabled: False
+        mask_logits_guided_token_merge: True
+        token_merge_layers: [8, 12, 16, 20]
+        encoder:
+          class_path: models.vit.ViT
+data:
+  class_path: datasets.ade20k_semantic.ADE20KSemantic
