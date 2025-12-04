@@ -196,12 +196,7 @@ class EoMT(nn.Module):
         )
         return x
 
-    def _remerge_tokens(self, x: torch.Tensor, mask: torch.Tensor):
-        x = self._unmerge_tokens(x, mask)
-        x, mask = self._merge_tokens(x)
-        return x, mask
-
-    def forward(self, x: torch.Tensor):
+    def forward(self, x: torch.Tensor, source: Optional[torch.Tensor] = None):
         x = (x - self.encoder.pixel_mean) / self.encoder.pixel_std
 
         rope = None
@@ -262,8 +257,23 @@ class EoMT(nn.Module):
                     elif x.shape[1] == self.num_q + self.encoder.backbone.num_prefix_tokens + self.encoder.backbone.patch_embed.num_patches:
                         warnings.warn("Final unmerge skipped as number of tokens matches original.")
                     else:
-                        raise ValueError("Unexpected number of tokens during final unmerge.")
+                        raise ValueError("Unexpected number of tokens during final unmerge.")   
                     
+        #### This is code for ALGM token merging baseline. ######
+        if source is not None:
+            idxs = source[:, self.num_q + self.encoder.backbone.num_prefix_tokens:, self.num_q + self.encoder.backbone.num_prefix_tokens:].argmax(dim=1)
+            # defining a torch tensor with the output size 
+            masks_shape = x.shape
+            size_x = source.shape[2]-1
+            x_ =  torch.ones(masks_shape[0],size_x,masks_shape[2],device=x.device)
+        
+            for batch in range(0,masks_shape[0]):
+                x_[batch,:,:] = x[batch,idxs[batch]]
+            
+            x = torch.cat((x[:, : self.num_q + self.encoder.backbone.num_prefix_tokens, :], x_), dim=1)
+
+        #### End of ALGM token merging baseline. ######
+
         mask_logits, class_logits = self._predict(self.encoder.backbone.norm(x))
         mask_logits_per_layer.append(mask_logits)
         class_logits_per_layer.append(class_logits)
