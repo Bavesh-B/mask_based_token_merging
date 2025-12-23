@@ -14,10 +14,10 @@ model:
       class_path: models.eomt.EoMT
       init_args:
         num_q: 100
-        num_blocks: 16
+        num_blocks: 12
         masked_attn_enabled: False
         mask_logits_guided_token_merge: True
-        token_merge_layers: [8, 12, 16, 20]
+        token_merge_layers: [12,]
         encoder:
           class_path: models.vit.ViT
 data:

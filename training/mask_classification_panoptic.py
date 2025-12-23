@@ -5,6 +5,8 @@
 
 
 from typing import List, Optional
+import copy
+import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
@@ -41,6 +43,9 @@ class MaskClassificationPanoptic(LightningModule):
         ckpt_path: Optional[str] = None,
         delta_weights: bool = False,
         load_ckpt_class_head: bool = True,
+        teacher_ckpt_path: Optional[str] = None,
+        teacher_network: Optional[nn.Module] = None,
+        distill_coefficient: float = 1.0,
     ):
         super().__init__(
             network=network,
@@ -60,6 +65,21 @@ class MaskClassificationPanoptic(LightningModule):
             delta_weights=delta_weights,
             load_ckpt_class_head=load_ckpt_class_head,
         )
+        if teacher_ckpt_path is not None and teacher_network is not None:
+            self.teacher = teacher_network
+            self.teacher.eval()
+            for p in self.teacher.parameters():
+                p.requires_grad_(False)
+
+            ckpt = self._load_ckpt(teacher_ckpt_path, True)
+            ckpt = {
+                (k[len("network.") :] if k.startswith("network.") else k): v
+                for k, v in ckpt.items()
+            }
+            incompatible = self.teacher.load_state_dict(ckpt, strict=False)
+            self._raise_on_incompatible(incompatible, load_ckpt_class_head)
+        else:
+            self.teacher = None
 
         self.save_hyperparameters(ignore=["_class_path"])
 
@@ -76,14 +96,48 @@ class MaskClassificationPanoptic(LightningModule):
             class_coefficient=class_coefficient,
             num_labels=num_classes,
             no_object_coefficient=no_object_coefficient,
+            distill_coefficient=distill_coefficient,
         )
 
         thing_classes = [i for i in range(num_classes) if i not in stuff_classes]
+
+        assert not(self.network.masked_attn_enabled and self.network.segloss_layers), "original masked attention with segloss_layers is not supported in panoptic training"
+        if self.network.masked_attn_enabled:
+            metric_num_blocks = self.network.num_blocks + 1
+        elif self.network.segloss_layers:
+            metric_num_blocks = len(self.network.segloss_layers) + 1
+        else:
+            metric_num_blocks = 1
         self.init_metrics_panoptic(
             thing_classes,
             stuff_classes,
-            self.network.num_blocks + 1 if self.network.masked_attn_enabled else 1,
+            metric_num_blocks,
         )
+
+    def training_step(self, batch, batch_idx):
+        imgs, targets = batch
+
+        teacher_feats = None
+        if getattr(self, "teacher", None) is not None:
+            with torch.no_grad():
+                teacher_feats = self.teacher(imgs / 255.0)
+
+        mask_logits_per_block, class_logits_per_block, distill_student_outputs = self(imgs)
+
+        losses_all_blocks = {}
+        for i, (mask_logits, class_logits) in enumerate(zip(mask_logits_per_block, class_logits_per_block)):
+            losses = self.criterion(
+                masks_queries_logits=mask_logits,
+                class_queries_logits=class_logits,
+                targets=targets,
+                distill_teacher_outputs=teacher_feats,
+                distill_student_outputs=distill_student_outputs
+            )
+            block_postfix = self.block_postfix(i)
+            losses = {f"{k}{block_postfix}": v for k, v in losses.items()}
+            losses_all_blocks |= losses
+
+        return self.criterion.loss_total(losses_all_blocks, self.log)
 
     def eval_step(
         self,
@@ -95,7 +149,8 @@ class MaskClassificationPanoptic(LightningModule):
 
         img_sizes = [img.shape[-2:] for img in imgs]
         transformed_imgs = self.resize_and_pad_imgs_instance_panoptic(imgs)
-        mask_logits_per_layer, class_logits_per_layer = self(transformed_imgs)
+        outputs = self(transformed_imgs)
+        mask_logits_per_layer, class_logits_per_layer = outputs[:2]
 
         is_crowds = [target["is_crowd"] for target in targets]
         targets = self.to_per_pixel_targets_panoptic(targets)

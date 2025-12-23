@@ -384,13 +384,16 @@ class LightningModule(lightning.LightningModule):
                 metric.false_positives[continuous_id] += 1
 
     def block_postfix(self, block_idx):
-        if not self.network.masked_attn_enabled:
-            return ""
-        return (
-            f"_block_{-len(self.metrics) + block_idx + 1}"
-            if block_idx != self.network.num_blocks
-            else ""
-        )
+        if self.network.masked_attn_enabled:
+            return (
+                f"_block_{-len(self.metrics) + block_idx + 1}"
+                if block_idx != self.network.num_blocks
+                else ""
+            )
+        if getattr(self.network, "segloss_layers", None):
+            if block_idx < len(self.network.segloss_layers):
+                return f"_block_{-len(self.metrics) + block_idx + 1}"
+        return ""
 
     def _on_eval_epoch_end_semantic(self, log_prefix, log_per_class=False):
         for i, metric in enumerate(self.metrics):  # type: ignore
@@ -893,16 +896,14 @@ class LightningModule(lightning.LightningModule):
         return ckpt
 
     def _raise_on_incompatible(self, incompatible_keys, load_ckpt_class_head):
-        if incompatible_keys.missing_keys:
-            if not load_ckpt_class_head:
-                missing_keys = [
-                    key
-                    for key in incompatible_keys.missing_keys
-                    if "class_head" not in key and "class_predictor" not in key
-                ]
-            else:
-                missing_keys = incompatible_keys.missing_keys
-            if missing_keys:
-                raise ValueError(f"Missing keys: {missing_keys}")
+        missing_keys = incompatible_keys.missing_keys
+        missing_keys = [k for k in missing_keys if "unmerge_module" not in k]
+        if not load_ckpt_class_head:
+            missing_keys = [
+                k for k in missing_keys
+                if "class_head" not in k and "class_predictor" not in k
+            ]
+        if missing_keys:
+            raise ValueError(f"Missing keys: {missing_keys}")
         if incompatible_keys.unexpected_keys:
             raise ValueError(f"Unexpected keys: {incompatible_keys.unexpected_keys}")

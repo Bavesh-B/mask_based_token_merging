@@ -1,0 +1,41 @@
+trainer:
+  max_epochs: 31
+  logger:
+    class_path: lightning.pytorch.loggers.wandb.WandbLogger
+    init_args:
+      resume: allow
+      project: "eomt"
+      name: "ade20k_panoptic_eomt_large_640"
+model:
+  class_path: training.mask_classification_panoptic.MaskClassificationPanoptic
+  init_args:
+    attn_mask_annealing_enabled: false
+    teacher_ckpt_path: checkpoints/pretrained_eomt/ade20k_ps.bin
+    distill_coefficient: 1.0
+    teacher_network:
+      class_path: models.eomt_teacher.EoMT
+      init_args:
+        num_q: 200
+        num_blocks: 4
+        num_classes: 150
+        distill_layers: [12]
+        encoder:
+          class_path: models.vit.ViT
+          init_args:
+            img_size: [640, 640]
+    network:
+      class_path: models.eomt.EoMT
+      init_args:
+        masked_attn_enabled: false
+        num_q: 200
+        num_blocks: 12
+        distill_layers: [12]
+        mask_logits_guided_token_merge: true
+        token_merge_layers: [12]
+        encoder:
+          class_path: models.vit.ViT
+
+data:
+  class_path: datasets.ade20k_panoptic.ADE20KPanoptic
+  init_args:
+    stuff_classes: [0, 1, 2, 3, 4, 5, 6, 9, 11, 13, 16, 17, 21, 25, 26, 28, 29, 34, 40, 46, 48, 51, 52, 54, 59, 60, 61, 63, 68, 77, 79, 84, 91, 94, 96, 99, 100, 101, 105, 106, 109, 113, 114, 117, 122, 128, 131, 140, 141, 145]

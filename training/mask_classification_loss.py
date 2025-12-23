@@ -13,6 +13,7 @@ from typing import List, Optional
 import torch.distributed as dist
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from transformers.models.mask2former.modeling_mask2former import (
     Mask2FormerLoss,
     Mask2FormerHungarianMatcher,
@@ -30,6 +31,7 @@ class MaskClassificationLoss(Mask2FormerLoss):
         class_coefficient: float,
         num_labels: int,
         no_object_coefficient: float,
+        distill_coefficient: float = 1.0,
     ):
         nn.Module.__init__(self)
         self.num_points = num_points
@@ -40,6 +42,7 @@ class MaskClassificationLoss(Mask2FormerLoss):
         self.class_coefficient = class_coefficient
         self.num_labels = num_labels
         self.eos_coef = no_object_coefficient
+        self.distill_coefficient = distill_coefficient
         empty_weight = torch.ones(self.num_labels + 1)
         empty_weight[-1] = self.eos_coef
         self.register_buffer("empty_weight", empty_weight)
@@ -49,7 +52,7 @@ class MaskClassificationLoss(Mask2FormerLoss):
             cost_mask=mask_coefficient,
             cost_dice=dice_coefficient,
             cost_class=class_coefficient,
-        )
+        )   
 
     @torch.compiler.disable
     def forward(
@@ -57,6 +60,8 @@ class MaskClassificationLoss(Mask2FormerLoss):
         masks_queries_logits: torch.Tensor,
         targets: List[dict],
         class_queries_logits: Optional[torch.Tensor] = None,
+        distill_teacher_outputs: Optional[List[torch.Tensor]] = None,
+        distill_student_outputs: Optional[List[torch.Tensor]] = None,
     ):
         mask_labels = [
             target["masks"].to(masks_queries_logits.dtype) for target in targets
@@ -72,8 +77,9 @@ class MaskClassificationLoss(Mask2FormerLoss):
 
         loss_masks = self.loss_masks(masks_queries_logits, mask_labels, indices)
         loss_classes = self.loss_labels(class_queries_logits, class_labels, indices)
+        loss_distill = self.loss_distillation(distill_student_outputs, distill_teacher_outputs)
 
-        return {**loss_masks, **loss_classes}
+        return {**loss_masks, **loss_classes, **loss_distill}
 
     def loss_masks(self, masks_queries_logits, mask_labels, indices):
         loss_masks = super().loss_masks(masks_queries_logits, mask_labels, indices, 1)
@@ -107,6 +113,8 @@ class MaskClassificationLoss(Mask2FormerLoss):
                 weighted_loss = loss * self.dice_coefficient
             elif "cross_entropy" in loss_key:
                 weighted_loss = loss * self.class_coefficient
+            elif "distill" in loss_key:
+                weighted_loss = loss * self.distill_coefficient
             else:
                 raise ValueError(f"Unknown loss key: {loss_key}")
 
@@ -118,3 +126,28 @@ class MaskClassificationLoss(Mask2FormerLoss):
         log_fn("losses/train_loss_total", loss_total, sync_dist=True, prog_bar=True)
 
         return loss_total  # type: ignore
+
+    def loss_distillation(
+        self,
+        distill_student_outputs: Optional[List[torch.Tensor]],
+        distill_teacher_outputs: Optional[List[torch.Tensor]],
+    ):
+        if (
+            distill_teacher_outputs is None
+            or distill_student_outputs is None
+            or len(distill_teacher_outputs) == 0
+            or len(distill_student_outputs) == 0
+        ):
+            return {}
+
+        if len(distill_teacher_outputs) != len(distill_student_outputs):
+            raise ValueError(
+                "Teacher and student distillation outputs must have the same length."
+            )
+
+        losses = []
+        for student, teacher in zip(distill_student_outputs, distill_teacher_outputs):
+            losses.append(F.mse_loss(student, teacher.detach(), reduction="mean"))
+
+        loss_distill = torch.stack(losses).mean()
+        return {"distill": loss_distill}

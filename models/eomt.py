@@ -14,6 +14,7 @@ import math
 import warnings
 
 from models.scale_block import ScaleBlock
+from models.unmerge import LearnableUnmergeLayered
 
 
 class EoMT(nn.Module):
@@ -26,6 +27,8 @@ class EoMT(nn.Module):
         masked_attn_enabled=True,
         mask_logits_guided_token_merge=False,
         token_merge_layers: list=None,
+        distill_layers: list = None,
+        segloss_layers: list = None,
     ):
         super().__init__()
         self.encoder = encoder
@@ -33,7 +36,7 @@ class EoMT(nn.Module):
         self.num_blocks = num_blocks
         self.masked_attn_enabled = masked_attn_enabled
 
-        self.register_buffer("attn_mask_probs", torch.ones(self.num_blocks))
+        self.register_buffer("attn_mask_probs", torch.ones(4))
 
         self.q = nn.Embedding(num_q, self.encoder.backbone.embed_dim)
 
@@ -61,6 +64,11 @@ class EoMT(nn.Module):
             assert self.token_merge_layers[0] >= len(self.encoder.backbone.blocks) - self.num_blocks
         else:
             self.token_merge_layers = [len(self.encoder.backbone.blocks) - self.num_blocks]
+
+        self.distill_layers = distill_layers
+        self.segloss_layers = sorted(segloss_layers) if segloss_layers is not None else []
+        # self.unmerge_module = LearnableUnmergeLayered(dim=self.encoder.backbone.embed_dim)
+        self.unmerge_module = None
 
     def _predict(self, x: torch.Tensor):
         q = x[:, : self.num_q, :]
@@ -183,17 +191,24 @@ class EoMT(nn.Module):
 
         return x, mask
 
-    def _unmerge_tokens(self, x: torch.Tensor, mask: torch.Tensor):
+    def _unmerge_tokens(self, x: torch.Tensor, mask: torch.Tensor, layer_ratio: float = 1.0):
         # unmerge tokens
-        fused = x[:, self.num_q + self.encoder.backbone.num_prefix_tokens :, :]
-        fused_expanded = fused.unsqueeze(2)
-        mask_expanded = mask.unsqueeze(-1)
-        reproj_sum = (mask_expanded * fused_expanded).sum(dim=1)
-        reproj_count = mask.sum(dim=1, keepdim=False).clamp(min=1e-6).unsqueeze(-1)  # [B, HW, 1]
-        reprojected_tokens = reproj_sum / reproj_count
-        x = torch.cat(
-            (x[:, : self.num_q + self.encoder.backbone.num_prefix_tokens, :], reprojected_tokens), dim=1
-        )
+        if self.unmerge_module is None:
+            fused = x[:, self.num_q + self.encoder.backbone.num_prefix_tokens :, :]
+            fused_expanded = fused.unsqueeze(2)
+            mask_expanded = mask.unsqueeze(-1)
+            reproj_sum = (mask_expanded * fused_expanded).sum(dim=1)
+            reproj_count = mask.sum(dim=1, keepdim=False).clamp(min=1e-6).unsqueeze(-1)  # [B, HW, 1]
+            reprojected_tokens = reproj_sum / reproj_count
+            x = torch.cat(
+                (x[:, : self.num_q + self.encoder.backbone.num_prefix_tokens, :], reprojected_tokens), dim=1
+            )
+        else:
+            fused = x[:, self.num_q + self.encoder.backbone.num_prefix_tokens :, :]
+            x_unmerged = self.unmerge_module(fused, mask, layer_ratio)
+            x = torch.cat(
+                (x[:, : self.num_q + self.encoder.backbone.num_prefix_tokens, :], x_unmerged), dim=1
+            )
         return x
 
     def forward(self, x: torch.Tensor, source: Optional[torch.Tensor] = None):
@@ -210,6 +225,7 @@ class EoMT(nn.Module):
 
         attn_mask = None
         mask_logits_per_layer, class_logits_per_layer = [], []
+        distill_outputs = [] if self.distill_layers else None
 
         for i, block in enumerate(self.encoder.backbone.blocks):
             if i == len(self.encoder.backbone.blocks) - self.num_blocks:
@@ -226,6 +242,19 @@ class EoMT(nn.Module):
                 class_logits_per_layer.append(class_logits)
 
                 attn_mask = self._attn_mask(x, mask_logits, i)
+            
+            ### seg loss outputs ###
+            if ( i in self.segloss_layers ):
+                if x.shape[1] == self.num_q + self.encoder.backbone.num_prefix_tokens + self.encoder.backbone.patch_embed.num_patches: 
+                    mask_logits, class_logits = self._predict(self.encoder.backbone.norm(x))
+                    mask_logits_per_layer.append(mask_logits)
+                    class_logits_per_layer.append(class_logits)
+                else:
+                    unmerged = self._unmerge_tokens(x, mask, layer_ratio=i / len(self.encoder.backbone.blocks))
+                    mask_logits, class_logits = self._predict(self.encoder.backbone.norm(unmerged))
+                    mask_logits_per_layer.append(mask_logits)
+                    class_logits_per_layer.append(class_logits)
+            ### seg loss outputs ###
 
             if hasattr(block, "attn"):
                 attn = block.attn
@@ -243,22 +272,36 @@ class EoMT(nn.Module):
             elif hasattr(block, "layer_scale2"):
                 x = x + block.layer_scale2(mlp_out)
 
+            ### token merge and unmerge ###
             if self.mask_logits_guided_token_merge:
                 # Initial token merge
                 if i == self.token_merge_layers[0]:
                     x, mask = self._merge_tokens(x)
-                # Re-merging of tokens
-                elif i in self.token_merge_layers[1:]:
-                    x, mask = self._remerge_tokens(x, mask)
                 # Final unmerge
                 elif i == len(self.encoder.backbone.blocks) - 1:
                     if x.shape[1] == self.num_q + self.num_q + self.encoder.backbone.num_prefix_tokens:
-                        x = self._unmerge_tokens(x, mask)
+                        x = self._unmerge_tokens(x, mask, layer_ratio=i / len(self.encoder.backbone.blocks))
                     elif x.shape[1] == self.num_q + self.encoder.backbone.num_prefix_tokens + self.encoder.backbone.patch_embed.num_patches:
                         warnings.warn("Final unmerge skipped as number of tokens matches original.")
                     else:
-                        raise ValueError("Unexpected number of tokens during final unmerge.")   
-                    
+                        raise ValueError("Unexpected number of tokens during final unmerge.")
+            ### token merge and unmerge ###
+
+            ### distillation outputs ###
+            if distill_outputs is not None and i in self.distill_layers:
+                if x.shape[1] == self.num_q + self.encoder.backbone.num_prefix_tokens + self.encoder.backbone.patch_embed.num_patches:
+                    vision_tokens = x[
+                        :, self.num_q + self.encoder.backbone.num_prefix_tokens :, :
+                    ]
+                    distill_outputs.append(vision_tokens)
+                else:
+                    unmerged = self._unmerge_tokens(x, mask, layer_ratio=i / len(self.encoder.backbone.blocks))
+                    vision_tokens = unmerged[
+                        :, self.num_q + self.encoder.backbone.num_prefix_tokens :, :
+                    ]
+                    distill_outputs.append(vision_tokens)
+            ### distillation outputs ###
+                
         #### This is code for ALGM token merging baseline. ######
         if source is not None:
             idxs = source[:, self.num_q + self.encoder.backbone.num_prefix_tokens:, self.num_q + self.encoder.backbone.num_prefix_tokens:].argmax(dim=1)
@@ -271,7 +314,6 @@ class EoMT(nn.Module):
                 x_[batch,:,:] = x[batch,idxs[batch]]
             
             x = torch.cat((x[:, : self.num_q + self.encoder.backbone.num_prefix_tokens, :], x_), dim=1)
-
         #### End of ALGM token merging baseline. ######
 
         mask_logits, class_logits = self._predict(self.encoder.backbone.norm(x))
@@ -281,4 +323,5 @@ class EoMT(nn.Module):
         return (
             mask_logits_per_layer,
             class_logits_per_layer,
+            distill_outputs,
         )
