@@ -168,6 +168,10 @@ class LightningModule(lightning.LightningModule):
             },
         }
 
+    def on_fit_start(self):
+        if hasattr(self.network, "_algm_init"):
+            self.network._algm_init()
+
     def forward(self, imgs):
         x = imgs / 255.0
 

@@ -12,8 +12,9 @@ import numpy as np
 
 def conditional_pooling(
     feat: torch.Tensor,
-    threshold:float,
+    threshold: float,
     window_size: Tuple[int, int],
+    num_prefix_tokens: int = 1,
 ) -> Tuple[Callable, Callable]:
     
     
@@ -23,8 +24,8 @@ def conditional_pooling(
         ws_h, ws_w = int(window_size[0]), int(window_size[1])
         stride_h, stride_w = ws_h, ws_w
         num_token_window = stride_h * stride_w
-        
-        x_cls, feat = feat[:, :1, :], feat[:, 1:, :]
+
+        x_prefix, feat = feat[:, :num_prefix_tokens, :], feat[:, num_prefix_tokens:, :]
         B, N, D = feat.size()
         base_grid_H = int(math.sqrt(N))
         base_grid_W = base_grid_H
@@ -99,19 +100,21 @@ def conditional_pooling(
         src_idx= gathered_tensor[:, :, :dim_index].reshape(B, -1).unsqueeze(-1)
         dst_idx= gathered_tensor[:, :, dim_index].reshape(B, -1).unsqueeze(-1)
         merge_idx = torch.arange(src_idx.shape[1]//dim_index).repeat_interleave(dim_index).repeat(B, 1).unsqueeze(-1).to(feat.device)
-
+        r=int(r.item())
 
     def merge(x: torch.Tensor, mode="mean") -> torch.Tensor:
-       # TODO: num_token_window can be undefined
-       
-        x_cls , x_feat =  x[:, :1, :], x[:, 1:, :]
+        # TODO: num_token_window can be undefined
+
+        x_prefix, x_feat = x[:, :num_prefix_tokens, :], x[:, num_prefix_tokens:, :]
         n, t1, c = x_feat.shape
-        src = x_feat.gather(dim=-2, index=src_idx.expand(n, r*dim_index, c))
+        src = x_feat.gather(dim=-2, index=src_idx.expand(n, r * dim_index, c))
         dst = x_feat.gather(dim=-2, index=dst_idx.expand(n, r, c))
-        unm = x_feat.gather(dim=-2, index=unm_idx.expand(n, t1 - (r*num_token_window), c))
+        unm = x_feat.gather(
+            dim=-2, index=unm_idx.expand(n, t1 - (r * num_token_window), c)
+        )
         dst = dst.scatter_reduce(-2, merge_idx.expand(n,r*dim_index, c), src, reduce=mode)
         x = torch.cat([dst, unm], dim=1)
-        x = torch.cat((x_cls, x), dim=1)
+        x = torch.cat((x_prefix, x), dim=1)
         return x
 
     return merge
