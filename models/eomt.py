@@ -29,6 +29,7 @@ class EoMT(nn.Module):
         token_merge_layers: list=None,
         distill_layers: list = None,
         segloss_layers: list = None,
+        merge_pool_size: int = 16,
     ):
         super().__init__()
         self.encoder = encoder
