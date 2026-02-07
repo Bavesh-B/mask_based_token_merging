@@ -35,6 +35,7 @@ class EoMT(nn.Module):
         merge_start_layer: int = 16,
         merge_interval: int = 4,
         query_insert_layer: int = 16,
+        query_reinsert_layer: int = 20,
         merge_conf_threshold_end: float = 0.0,
         merge_schedule_epochs: int = 7,
         merge_schedule_enabled: bool = True,
@@ -60,6 +61,7 @@ class EoMT(nn.Module):
         self.merge_start_layer = merge_start_layer
         self.merge_interval = merge_interval
         self.query_insert_layer = query_insert_layer
+        self.query_reinsert_layer = query_reinsert_layer
         self.merge_strategy = merge_strategy
         self.local_merge_enabled = local_merge_enabled
         self.local_merge_after_layer = local_merge_after_layer
@@ -486,26 +488,49 @@ class EoMT(nn.Module):
         # merge_after_block_idx = 20  # 0-based index; adjust if you want a different layer.
 
         has_queries = False
+        queries_persistent = False
         if self.query_insert_layer is None:
             query_insert_layer = len(self.encoder.backbone.blocks) - self.num_blocks
         else:
             query_insert_layer = max(int(self.query_insert_layer) - 1, 0)
             query_insert_layer = min(query_insert_layer, len(self.encoder.backbone.blocks) - 1)
+        if self.query_reinsert_layer is None:
+            query_reinsert_layer = len(self.encoder.backbone.blocks) - self.num_blocks
+        else:
+            query_reinsert_layer = max(int(self.query_reinsert_layer) - 1, 0)
+            query_reinsert_layer = min(query_reinsert_layer, len(self.encoder.backbone.blocks) - 1)
+
+        def _prepend_queries(
+            x_tokens: torch.Tensor,
+            source_map: Optional[torch.Tensor],
+        ) -> tuple[torch.Tensor, Optional[torch.Tensor]]:
+            if local_merged and source_map is not None and self.num_q > 0:
+                if source_map.shape[1] != x_tokens.shape[1] + self.num_q:
+                    padded_source = source_map.new_zeros(
+                        source_map.shape[0],
+                        source_map.shape[1] + self.num_q,
+                        source_map.shape[2] + self.num_q,
+                    )
+                    padded_source[:, self.num_q :, self.num_q :] = source_map
+                    diag_idx = torch.arange(self.num_q, device=source_map.device)
+                    padded_source[:, diag_idx, diag_idx] = 1
+                    source_map = padded_source
+            x_tokens = torch.cat(
+                (self.q.weight[None, :, :].expand(x_tokens.shape[0], -1, -1), x_tokens), dim=1
+            )
+            return x_tokens, source_map
+
         for i, block in enumerate(self.encoder.backbone.blocks):
             # if i>=8:
             #     assert False, 'Local merge should be done after 1'
-            if i == query_insert_layer:
-                if local_merged and local_merge_source is not None and self.num_q > 0:
-                    if local_merge_source.shape[1] != x.shape[1] + self.num_q:
-                        padded_source = local_merge_source.new_zeros(
-                            local_merge_source.shape[0],
-                            local_merge_source.shape[1] + self.num_q,
-                            local_merge_source.shape[2] + self.num_q,
-                        )
-                        padded_source[:, self.num_q :, self.num_q :] = local_merge_source
-                        diag_idx = torch.arange(self.num_q, device=local_merge_source.device)
-                        padded_source[:, diag_idx, diag_idx] = 1
-                        local_merge_source = padded_source
+            if i == query_insert_layer and not has_queries:
+                x, local_merge_source = _prepend_queries(x, local_merge_source)
+                has_queries = True
+                queries_persistent = i == query_reinsert_layer
+            elif i == query_reinsert_layer and not has_queries:
+                x, local_merge_source = _prepend_queries(x, local_merge_source)
+                has_queries = True
+                queries_persistent = True
                 # if self.encoder.backbone._turbo_info["source"] is not None:
                     # x = self._algm_unmerge(x, self.encoder.backbone._turbo_info["source"], has_queries=False)
                     # assert False
@@ -525,10 +550,6 @@ class EoMT(nn.Module):
                 #     turbo_info["source"] = padded_source
                 #     source = padded_source
                 # print('SAHPEEE!', x.shape)
-                x = torch.cat(
-                    (self.q.weight[None, :, :].expand(x.shape[0], -1, -1), x), dim=1
-                )
-                has_queries = True
 
             if hasattr(block, "_turbo_info"):
                 # print('i:', i)
@@ -575,6 +596,9 @@ class EoMT(nn.Module):
                         merged_masks.append(merged_mask)
                 elif self.merge_strategy == "rematch":
                     merged_masks = []
+            if has_queries and not queries_persistent and i == query_insert_layer:
+                x = x[:, self.num_q :, :]
+                has_queries = False
             # if i == len(self.encoder.backbone.blocks) - self.num_blocks:
             #     x, merged_mask = self._merge_tokens(x, layer_idx=i + 1)
         # source = turbo_info["source"]
