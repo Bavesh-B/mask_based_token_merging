@@ -56,6 +56,11 @@ class LightningModule(lightning.LightningModule):
         weight_decay: float,
         poly_power: float,
         warmup_steps: tuple[int, int],
+        query_lr_mult: float = 1.0,
+        query_lr_mult_end: float = 1.0,
+        query_lr_schedule: str = "constant",
+        query_lr_schedule_steps: Optional[tuple[int, int]] = None,
+        head_lr_mult: float = 1.0,
         ckpt_path=None,
         delta_weights=False,
         load_ckpt_class_head=True,
@@ -71,6 +76,13 @@ class LightningModule(lightning.LightningModule):
         self.lr = lr
         self.llrd = llrd
         self.lr_mult = lr_mult
+        self.query_lr_mult = query_lr_mult
+        self.query_lr_mult_end = query_lr_mult_end
+        self.query_lr_schedule = query_lr_schedule
+        self.query_lr_schedule_steps = query_lr_schedule_steps
+        self.query_lr_mult_start = query_lr_mult
+        self._last_query_lr_mult: Optional[float] = None
+        self.head_lr_mult = head_lr_mult
         self.weight_decay = weight_decay
         self.poly_power = poly_power
         self.warmup_steps = warmup_steps
@@ -98,6 +110,11 @@ class LightningModule(lightning.LightningModule):
             self._raise_on_incompatible(incompatible_keys, load_ckpt_class_head)
 
         self.log = torch.compiler.disable(self.log)  # type: ignore
+
+        if self.query_lr_schedule not in ("constant", "linear", "cosine"):
+            raise ValueError(
+                "query_lr_schedule must be one of: 'constant', 'linear', 'cosine'"
+            )
 
     def configure_optimizers(self):
         encoder_param_names = {
@@ -144,8 +161,21 @@ class LightningModule(lightning.LightningModule):
                     {"params": [param], "lr": lr, "name": name}
                 )
             else:
+                if "network.q." in name:
+                    lr = self.lr * self.query_lr_mult
+                elif (
+                    name.startswith("network.class_head")
+                    or name.startswith("network.mask_head")
+                    or name.startswith("network.upscale")
+                ):
+                    lr = self.lr * self.head_lr_mult
                 other_param_groups.append(
-                    {"params": [param], "lr": self.lr, "name": name}
+                    {
+                        "params": [param],
+                        "lr": lr,
+                        "name": name,
+                        "is_query": "network.q." in name,
+                    }
                 )
 
         param_groups = backbone_param_groups + other_param_groups
@@ -168,9 +198,68 @@ class LightningModule(lightning.LightningModule):
             },
         }
 
-    def on_fit_start(self):
-        if hasattr(self.network, "_algm_init"):
-            self.network._algm_init()
+    def on_train_epoch_start(self):
+        if hasattr(self.network, "update_merge_schedule"):
+            self.network.update_merge_schedule(
+                self.current_epoch, self.trainer.max_epochs
+            )
+
+        if self.query_lr_schedule_steps is None and self.query_lr_schedule != "constant":
+            total_steps = int(self.trainer.estimated_stepping_batches)
+            self.query_lr_schedule_steps = (0, total_steps)
+
+        if self.query_lr_schedule != "constant":
+            self._apply_query_lr_mult()
+
+    def lr_scheduler_step(self, scheduler, metric):
+        scheduler.step()
+        if self.query_lr_schedule != "constant":
+            self._apply_query_lr_mult()
+
+    def _compute_query_lr_mult(self, step: int) -> float:
+        if self.query_lr_schedule == "constant":
+            return self.query_lr_mult_start
+
+        if self.query_lr_schedule_steps is None:
+            return self.query_lr_mult_start
+
+        start_step, end_step = self.query_lr_schedule_steps
+        start_step = int(start_step)
+        end_step = int(end_step)
+        if end_step <= start_step:
+            return self.query_lr_mult_end
+        if step <= start_step:
+            return self.query_lr_mult_start
+        if step >= end_step:
+            return self.query_lr_mult_end
+
+        t = (step - start_step) / float(end_step - start_step)
+        if self.query_lr_schedule == "linear":
+            return self.query_lr_mult_start + t * (
+                self.query_lr_mult_end - self.query_lr_mult_start
+            )
+        if self.query_lr_schedule == "cosine":
+            return self.query_lr_mult_end + 0.5 * (
+                self.query_lr_mult_start - self.query_lr_mult_end
+            ) * (1.0 + math.cos(math.pi * t))
+        return self.query_lr_mult_start
+
+    def _apply_query_lr_mult(self) -> None:
+        desired_mult = self._compute_query_lr_mult(self.global_step)
+        if self._last_query_lr_mult == desired_mult:
+            return
+        if self.query_lr_mult_start == 0:
+            return
+        scale = desired_mult / self.query_lr_mult_start
+        optimizer = self.trainer.optimizers[0]
+        for group in optimizer.param_groups:
+            if group.get("is_query", False):
+                group["lr"] = group["lr"] * scale
+        self._last_query_lr_mult = desired_mult
+
+    # def on_fit_start(self):
+    #     if hasattr(self.network, "_algm_init"):
+    #         self.network._algm_init()
 
     def forward(self, imgs):
         x = imgs / 255.0

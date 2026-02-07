@@ -16,6 +16,7 @@ import warnings
 from models.scale_block import ScaleBlock
 from algm_addition import apply_patch
 from einops import rearrange
+from models.algm_layers.global_merge_bavesh import global_bipartite_matching_masked
 
 
 class EoMT(nn.Module):
@@ -26,7 +27,11 @@ class EoMT(nn.Module):
         num_q,
         num_blocks=4,
         masked_attn_enabled=True,
-        merge_pool_size: int = 8,
+        merge_pool_size: int = 20,
+        merged_after_block_idx: int = 20,
+        merge_conf_threshold: float = 0.5,
+        merge_start_layer: int = 16,
+        merge_interval: int = 4,
     ):
         super().__init__()
         self.encoder = encoder
@@ -34,6 +39,10 @@ class EoMT(nn.Module):
         self.num_blocks = num_blocks
         self.masked_attn_enabled = masked_attn_enabled
         self.merge_pool_size = merge_pool_size
+        self.merge_after_block_idx = merged_after_block_idx
+        self.merge_conf_threshold = merge_conf_threshold
+        self.merge_start_layer = merge_start_layer
+        self.merge_interval = merge_interval
 
         self.register_buffer("attn_mask_probs", torch.ones(self.num_blocks))
 
@@ -59,6 +68,13 @@ class EoMT(nn.Module):
 
         self.selected_layers = [1, 7]
         # self._algm_init()
+
+    def _should_merge(self, layer_idx: int) -> bool:
+        if self.merge_interval <= 0:
+            return False
+        if layer_idx < self.merge_start_layer:
+            return False
+        return (layer_idx - self.merge_start_layer) % self.merge_interval == 0
 
     def _algm_init(self):
         apply_patch(
@@ -181,7 +197,7 @@ class EoMT(nn.Module):
         )
         return attn_mask
 
-    def _merge_tokens(self, x: torch.Tensor):
+    def _merge_tokens(self, x: torch.Tensor, layer_idx: int):
         # Compute token merge masks
         mask_logits, _ = self._predict(self.encoder.backbone.norm(x)) # [B, N, 128, 128]
         grid_h, grid_w = self.encoder.backbone.patch_embed.grid_size
@@ -190,81 +206,52 @@ class EoMT(nn.Module):
             (grid_h, grid_w),
             mode="bilinear",
         ) # [B, N, 32, 32]
-        vision_token_masks = torch.softmax(interpolated, dim=1)
+        vision_token_masks = torch.softmax(interpolated, dim=1).flatten(2)
 
-        # Merge tokens with spatial pooling to keep multiple tokens per mask.
-        pool_size = max(1, int(self.merge_pool_size))
-        pad_h = (pool_size - (grid_h % pool_size)) % pool_size
-        pad_w = (pool_size - (grid_w % pool_size)) % pool_size
-        if pad_h or pad_w:
-            vision_token_masks = F.pad(vision_token_masks, (0, pad_w, 0, pad_h))
-
-        vision_tokens = x[:, self.num_q + self.encoder.backbone.num_prefix_tokens :, :]
-        vision = vision_tokens.transpose(1, 2).reshape(x.shape[0], -1, grid_h, grid_w)
-        if pad_h or pad_w:
-            vision = F.pad(vision, (0, pad_w, 0, pad_h))
-
-        weighted = vision_token_masks.unsqueeze(2) * vision.unsqueeze(1)
-        weighted = weighted.flatten(0, 1)
-        pooled_weighted = F.avg_pool2d(weighted, pool_size, stride=pool_size)
-        pooled_weighted = pooled_weighted * (pool_size * pool_size)
-        pooled_weighted = pooled_weighted.view(
-            x.shape[0],
-            vision_token_masks.shape[1],
-            vision.shape[1],
-            pooled_weighted.shape[-2],
-            pooled_weighted.shape[-1],
+        protected = self.num_q + self.encoder.backbone.num_prefix_tokens
+        vision_tokens = x[:, protected:, :]
+        merge, merge_info = global_bipartite_matching_masked(
+            vision_tokens,
+            vision_token_masks,
+            layer_idx=layer_idx,
+            tau=self.merge_conf_threshold,
         )
+        merged_vision = merge(vision_tokens)
+        x = torch.cat((x[:, :protected, :], merged_vision), dim=1)
 
-        pooled_mask = F.avg_pool2d(vision_token_masks, pool_size, stride=pool_size)
-        pooled_mask = pooled_mask * (pool_size * pool_size)
-        pooled_mask = pooled_mask.clamp(min=1e-6)
+        if merge_info is None:
+            return x, None
 
-        fused = pooled_weighted / pooled_mask.unsqueeze(2)
-        fused = fused.permute(0, 1, 3, 4, 2).reshape(x.shape[0], -1, vision.shape[1])
-
-        x = torch.cat(
-            (x[:, : self.num_q + self.encoder.backbone.num_prefix_tokens, :], fused), dim=1
-        )
-
-        mask_info = {
-            "weights": vision_token_masks,
-            "pool_size": pool_size,
-            "pad_hw": (pad_h, pad_w),
-            "grid_hw": (grid_h, grid_w),
-        }
-
-        return x, mask_info
+        merge_info["type"] = "bipartite"
+        return x, merge_info
 
     def _unmerge_tokens(self, x: torch.Tensor, mask):
         # unmerge tokens
         if isinstance(mask, dict):
-            weights = mask["weights"]
-            pool_size = mask["pool_size"]
-            pad_h, pad_w = mask["pad_hw"]
-            grid_h, grid_w = mask["grid_hw"]
+            if mask.get("type") != "bipartite":
+                raise ValueError("Unknown merge info for unmerge.")
+            unm_idx = mask["unm_idx"]
+            src_idx = mask["src_idx"]
+            dst_idx = mask["dst_idx"]
+            num_patch = mask["num_patch"]
 
-            fused = x[:, self.num_q + self.encoder.backbone.num_prefix_tokens :, :]
-            bsz = fused.shape[0]
-            num_masks = weights.shape[1]
-            h_pad, w_pad = weights.shape[-2], weights.shape[-1]
-            h_tiles = h_pad // pool_size
-            w_tiles = w_pad // pool_size
+            protected = self.num_q + self.encoder.backbone.num_prefix_tokens
+            merged = x[:, protected:, :]
+            if merged.shape[1] == num_patch:
+                return x
 
-            fused = fused.view(bsz, num_masks, h_tiles, w_tiles, -1)
-            fused = fused.permute(0, 1, 4, 2, 3)
-            fused_up = F.interpolate(fused, size=(h_pad, w_pad), mode="nearest")
+            unm_len = unm_idx.shape[1]
+            dst = merged[:, unm_len:, :]
+            unm = merged[:, :unm_len, :]
+            n, _, c = merged.shape
+            r = src_idx.shape[1]
 
-            pooled_mask = F.avg_pool2d(weights, pool_size, stride=pool_size)
-            pooled_mask = pooled_mask * (pool_size * pool_size)
-            pooled_mask = pooled_mask.clamp(min=1e-6)
-            pooled_mask_up = F.interpolate(pooled_mask, size=(h_pad, w_pad), mode="nearest")
-            norm_weights = weights / pooled_mask_up
-
-            reprojected = (fused_up * norm_weights.unsqueeze(2)).sum(dim=1)
-            if pad_h or pad_w:
-                reprojected = reprojected[..., :grid_h, :grid_w]
-            reprojected_tokens = reprojected.flatten(2).transpose(1, 2)
+            src = dst.gather(dim=-2, index=dst_idx.expand(n, r, c))
+            out_patch = torch.zeros(n, num_patch, c, device=x.device, dtype=x.dtype)
+            out_patch[..., 1::2, :] = dst
+            out_patch.scatter_(dim=-2, index=(2 * unm_idx).expand(n, unm_len, c), src=unm)
+            out_patch.scatter_(dim=-2, index=(2 * src_idx).expand(n, r, c), src=src)
+            reprojected_tokens = out_patch
         else:
             fused = x[:, self.num_q + self.encoder.backbone.num_prefix_tokens :, :]
             fused_expanded = fused.unsqueeze(2)
@@ -345,7 +332,7 @@ class EoMT(nn.Module):
     ):
         x = (x - self.encoder.pixel_mean) / self.encoder.pixel_std
 
-        self._reset_turbo_info()
+        # self._reset_turbo_info()
         x = self.encoder.backbone.patch_embed(x)
 
         if hasattr(self.encoder.backbone, "_pos_embed"):
@@ -355,11 +342,16 @@ class EoMT(nn.Module):
         turbo_info = getattr(self.encoder.backbone, "_turbo_info", None)
         num_protected_tokens = self.encoder.backbone.num_prefix_tokens
         source = turbo_info["source"] if turbo_info is not None else None
+        merged_masks = []
+        # merge_after_block_idx = 20  # 0-based index; adjust if you want a different layer.
 
+        has_queries = False
+        # query_insert_layer = len(self.encoder.backbone.blocks) - self.num_blocks
+        query_insert_layer = self.merge_start_layer
         for i, block in enumerate(self.encoder.backbone.blocks):
             # if i>=8:
             #     assert False, 'Local merge should be done after 1'
-            if i == len(self.encoder.backbone.blocks) - self.num_blocks:
+            if i == query_insert_layer:
                 # if self.encoder.backbone._turbo_info["source"] is not None:
                     # x = self._algm_unmerge(x, self.encoder.backbone._turbo_info["source"], has_queries=False)
                     # assert False
@@ -382,6 +374,7 @@ class EoMT(nn.Module):
                 x = torch.cat(
                     (self.q.weight[None, :, :].expand(x.shape[0], -1, -1), x), dim=1
                 )
+                has_queries = True
 
             if hasattr(block, "_turbo_info"):
                 # print('i:', i)
@@ -389,14 +382,23 @@ class EoMT(nn.Module):
                 # source = self.encoder.backbone._turbo_info["source"]
             else:
                 x = block(x)
+            if has_queries and i < len(self.encoder.backbone.blocks) - 1 and self._should_merge(i + 1):
+                x, merged_mask = self._merge_tokens(x, layer_idx=i + 1)
+                if merged_mask is not None:
+                    merged_masks.append(merged_mask)
+            # if i == len(self.encoder.backbone.blocks) - self.num_blocks:
+            #     x, merged_mask = self._merge_tokens(x, layer_idx=i + 1)
         # source = turbo_info["source"]
         #### This is code for ALGM token merging baseline. ######
-        if self.encoder.backbone._turbo_info["source"] is not None:
-            x_vis = x[:, self.num_q:, :]
-            x_vis = self._algm_unmerge(x_vis, self.encoder.backbone._turbo_info["source"], has_queries=False)
-            x = torch.cat((x[:, :self.num_q, :], x_vis), dim=1)
-
+        # if self.encoder.backbone._turbo_info["source"] is not None:
+        #     x_vis = x[:, self.num_q:, :]
+        #     x_vis = self._algm_unmerge(x_vis, self.encoder.backbone._turbo_info["source"], has_queries=False)
+        #     x = torch.cat((x[:, :self.num_q, :], x_vis), dim=1)
         #### End of ALGM token merging baseline. ######
+
+        if merged_masks:
+            for merged_mask in reversed(merged_masks):
+                x = self._unmerge_tokens(x, merged_mask)
 
         mask_logits, class_logits = self._predict(self.encoder.backbone.norm(x))
         mask_logits_per_layer.append(mask_logits)
