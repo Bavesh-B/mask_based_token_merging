@@ -10,7 +10,7 @@ model:
   class_path: training.mask_classification_panoptic.MaskClassificationPanoptic
   init_args:
     attn_mask_annealing_enabled: False
-    query_lr_mult: 3.0
+    query_lr_mult: 2.0
     query_lr_mult_end: 1.0
     query_lr_schedule: cosine
     query_lr_schedule_steps: [0, 2524]
@@ -20,14 +20,20 @@ model:
       init_args:
         num_q: 200
         masked_attn_enabled: False
-        query_insert_layer: 12
-        merge_start_layer: 12
-        merge_interval: 12
+        query_insert_layer: 7
+        query_reinsert_layer: 20
+        merge_start_layer: 7
+        merge_interval: 20
         merge_conf_threshold: 0.0
         merge_conf_threshold_end: 0.0
         merge_schedule_epochs: 7
         merge_schedule_enabled: True
         merge_strategy: project
+        local_merge_enabled: True
+        local_merge_after_layer: 1
+        local_merge_window_size: [2, 2]
+        local_merge_threshold: 0.88
+        merge_logging_enabled: False
         encoder:
           class_path: models.vit.ViT
 data:
