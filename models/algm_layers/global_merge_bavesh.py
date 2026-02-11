@@ -89,11 +89,16 @@ def turbo_matching(
     return merge
 
 
+# @torch.compiler.disable
 def global_bipartite_matching_masked(
     metric: torch.Tensor,
     mask_probs: torch.Tensor,
     layer_idx: int,
     tau: float = 0.0,
+    min_merge_ratio: float = 0.85,
+    class_token: bool = False,
+    num_query_tokens: int = 200,
+    num_register_tokens: int = 4,
 ) -> Tuple[Callable, dict]:
     """
     Global bipartite matching with mask gating.
@@ -135,6 +140,18 @@ def global_bipartite_matching_masked(
         denom = max(int(layer_idx), 1)
         node_mean = mean + std / denom
 
+        # Base adaptive merge count.
+        # adaptive_r = int(((node_max >= node_mean.unsqueeze(-1)) & valid).sum(dim=1).min().item())
+        # Lower bound on merges, expressed as a ratio of valid merge candidates.
+        # merge_ratio = float(min_merge_ratio)
+        # merge_ratio = min(max(merge_ratio, 0.0), 1.0)
+        # max_valid_merges = int(valid_counts.min().item())
+        # ratio_floor_r = int(max_valid_merges * merge_ratio)
+        #
+        # r = max(adaptive_r, ratio_floor_r)
+        # r = min(r, max_valid_merges, node_max.shape[1])
+
+        # Original adaptive r selection.
         r = ((node_max >= node_mean.unsqueeze(-1)) & valid).sum(dim=1).min()
         r = int(r.item())
         if r <= 0:
@@ -161,7 +178,4 @@ def global_bipartite_matching_masked(
     }
 
     return merge, info
-
-
-
 
