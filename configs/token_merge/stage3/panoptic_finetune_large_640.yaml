@@ -10,9 +10,9 @@ model:
   class_path: training.mask_classification_panoptic.MaskClassificationPanoptic
   init_args:
     attn_mask_annealing_enabled: False
-    query_lr_mult: 3.0
+    query_lr_mult: 1.0
     query_lr_mult_end: 1.0
-    query_lr_schedule: cosine
+    query_lr_schedule: constant
     query_lr_schedule_steps: [0, 2524]
     head_lr_mult: 1.0
     network:
@@ -27,7 +27,7 @@ model:
         query_reinsert_layer: 20
         merge_start_layer: 7
         merge_interval: 20
-        merge_conf_threshold: 0.7
+        merge_conf_threshold: 0.5
         merge_conf_threshold_end: 0.0
         merge_schedule_epochs: 7
         merge_schedule_enabled: True
@@ -35,20 +35,24 @@ model:
         merge_strategy: project
         local_merge_enabled: False
         local_merge_after_layer: 1
-        local_merge_window_size: [4, 4]
+        local_merge_window_size: [2, 2]
         local_merge_threshold: 0.88
         merge_logging_enabled: False
         entropy_tokenization_enabled: True
         entropy_num_scales: 2
-        entropy_thresholds: [4.5]
+        entropy_thresholds: [3.0]
         entropy_bins: 64
         entropy_tokenization_mode: hybrid
         entropy_merge_channel_weight: 1.0
         entropy_keep_channel_weight: 1.0
         entropy_pre_transformer_merge_enabled: True
+        entropy_varlen_flash_enabled: True
         encoder:
           class_path: models.vit.ViT
 data:
   class_path: datasets.ade20k_panoptic.ADE20KPanoptic
   init_args:
+    entropy_enabled: True
+    entropy_patch_size: 16
+    entropy_num_scales: 2
     stuff_classes: [0, 1, 2, 3, 4, 5, 6, 9, 11, 13, 16, 17, 21, 25, 26, 28, 29, 34, 40, 46, 48, 51, 52, 54, 59, 60, 61, 63, 68, 77, 79, 84, 91, 94, 96, 99, 100, 101, 105, 106, 109, 113, 114, 117, 122, 128, 131, 140, 141, 145]

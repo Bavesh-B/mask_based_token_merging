@@ -52,9 +52,16 @@ def compute_patch_entropy_batched(
         # Quantize to histogram bins.
         idx = (flat * (bins / 256.0)).long().clamp(0, bins - 1)
         idx = idx.reshape(-1, ps * ps)
-        one_hot = torch.zeros(idx.shape[0], ps * ps, bins, device=device, dtype=images.dtype)
-        one_hot.scatter_(2, idx.unsqueeze(2), 1.0)
-        hist = one_hot.sum(dim=1).reshape(bsz, num_h, num_w, bins)
+        num_rows = idx.shape[0]
+        row_offsets = (
+            torch.arange(num_rows, device=device, dtype=idx.dtype).unsqueeze(1) * bins
+        )
+        idx_offset = idx + row_offsets
+        hist = torch.bincount(
+            idx_offset.reshape(-1),
+            minlength=num_rows * bins,
+        ).reshape(num_rows, bins)
+        hist = hist.to(images.dtype).reshape(bsz, num_h, num_w, bins)
 
         probs = hist / float(ps * ps)
         eps = 1e-10
@@ -137,5 +144,35 @@ def build_base_keep_mask_from_entropy(
         bins=bins,
     )
     masks = select_patches_by_threshold(maps, thresholds)
+    keep = masks[base_patch_size].flatten(1)
+    return keep
+
+
+def build_base_keep_mask_from_entropy_maps(
+    entropy_maps: Dict[int, torch.Tensor],
+    base_patch_size: int,
+    num_scales: int,
+    thresholds: Optional[List[float]],
+) -> torch.Tensor:
+    """
+    Build base-scale keep mask from precomputed entropy maps.
+    Args:
+        entropy_maps: Dict[patch_size, map] with each map [B, H, W] or [H, W].
+    Returns:
+        keep mask [B, N_base].
+    """
+    if thresholds is None:
+        thresholds = [4.5] * max(0, num_scales - 1)
+
+    normalized_maps: Dict[int, torch.Tensor] = {}
+    for ps, emap in entropy_maps.items():
+        if emap.dim() == 2:
+            normalized_maps[ps] = emap.unsqueeze(0)
+        elif emap.dim() == 3:
+            normalized_maps[ps] = emap
+        else:
+            raise ValueError(f"Entropy map for patch size {ps} must be [H,W] or [B,H,W], got {emap.shape}")
+
+    masks = select_patches_by_threshold(normalized_maps, thresholds)
     keep = masks[base_patch_size].flatten(1)
     return keep

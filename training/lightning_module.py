@@ -261,15 +261,21 @@ class LightningModule(lightning.LightningModule):
     #     if hasattr(self.network, "_algm_init"):
     #         self.network._algm_init()
 
-    def forward(self, imgs):
+    def forward(self, imgs, entropy_maps=None):
         x = imgs / 255.0
 
-        return self.network(x)
+        if entropy_maps is None:
+            return self.network(x)
+        return self.network(x, entropy_maps=entropy_maps)
 
     def training_step(self, batch, batch_idx):
-        imgs, targets = batch
+        if len(batch) == 3:
+            imgs, targets, entropy_maps = batch
+        else:
+            imgs, targets = batch
+            entropy_maps = None
 
-        mask_logits_per_block, class_logits_per_block = self(imgs)
+        mask_logits_per_block, class_logits_per_block = self(imgs, entropy_maps=entropy_maps)
 
         losses_all_blocks = {}
         for i, (mask_logits, class_logits) in enumerate(
@@ -987,6 +993,10 @@ class LightningModule(lightning.LightningModule):
 
     def _raise_on_incompatible(self, incompatible_keys, load_ckpt_class_head):
         if incompatible_keys.missing_keys:
+            allowed_missing_prefixes = [
+                "network.entropy_patch_attn.",
+                "network.entropy_zero_mlp.",
+            ]
             if not load_ckpt_class_head:
                 missing_keys = [
                     key
@@ -995,6 +1005,11 @@ class LightningModule(lightning.LightningModule):
                 ]
             else:
                 missing_keys = incompatible_keys.missing_keys
+            missing_keys = [
+                key
+                for key in missing_keys
+                if not any(key.startswith(prefix) for prefix in allowed_missing_prefixes)
+            ]
             if missing_keys:
                 raise ValueError(f"Missing keys: {missing_keys}")
         if incompatible_keys.unexpected_keys:

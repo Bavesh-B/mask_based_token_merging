@@ -214,7 +214,11 @@ class Dataset(torch.utils.data.Dataset):
         }
 
         if self.transforms is not None:
-            img, target = self.transforms(img, target)
+            transformed = self.transforms(img, target)
+            if len(transformed) == 3:
+                img, target, entropy_maps = transformed
+                return img, target, entropy_maps
+            img, target = transformed
 
         return img, target
 
