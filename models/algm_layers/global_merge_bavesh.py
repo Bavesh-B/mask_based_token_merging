@@ -7,6 +7,74 @@ def do_nothing(x, mode=None):
     return x
 
 
+def _l1_normalize(x: torch.Tensor, eps: float = 1e-12) -> torch.Tensor:
+    return x / (x.sum(dim=-1, keepdim=True) + eps)
+
+
+def _pairwise_js_similarity(
+    a_probs: torch.Tensor,
+    b_probs: torch.Tensor,
+    eps: float = 1e-12,
+    chunk_size: int = 128,
+) -> torch.Tensor:
+    # a_probs: [B, Na, Q], b_probs: [B, Nb, Q]
+    a_probs = _l1_normalize(a_probs, eps=eps).clamp_min(eps)
+    b_probs = _l1_normalize(b_probs, eps=eps).clamp_min(eps)
+    a_log = a_probs.log()
+    b_log = b_probs.log()
+
+    bsz, na, _ = a_probs.shape
+    nb = b_probs.shape[1]
+    out = a_probs.new_empty((bsz, na, nb))
+    log2 = math.log(2.0)
+
+    for start in range(0, na, chunk_size):
+        end = min(start + chunk_size, na)
+        a = a_probs[:, start:end, :].unsqueeze(2)  # [B, C, 1, Q]
+        b = b_probs.unsqueeze(1)  # [B, 1, Nb, Q]
+        m = (a + b) * 0.5
+        m_log = m.clamp_min(eps).log()
+
+        a_log_chunk = a_log[:, start:end, :].unsqueeze(2)
+        b_log_full = b_log.unsqueeze(1)
+        kl_pm = (a * (a_log_chunk - m_log)).sum(dim=-1)
+        kl_qm = (b * (b_log_full - m_log)).sum(dim=-1)
+        js = 0.5 * (kl_pm + kl_qm)
+        out[:, start:end, :] = 1.0 - (js / log2)
+
+    return out
+
+
+def _mask_distribution_scores(
+    metric: torch.Tensor,
+    mask_probs: torch.Tensor,
+    score_metric: str = "js",
+) -> torch.Tensor:
+    a_probs = mask_probs[..., ::2].transpose(1, 2)  # [B, N/2, Q]
+    b_probs = mask_probs[..., 1::2].transpose(1, 2)  # [B, N/2, Q]
+    eps = 1e-12
+
+    if score_metric == "js":
+        return _pairwise_js_similarity(a_probs, b_probs, eps=eps)
+    if score_metric == "hellinger":
+        a = _l1_normalize(a_probs, eps=eps).clamp_min(eps).sqrt()
+        b = _l1_normalize(b_probs, eps=eps).clamp_min(eps).sqrt()
+        return a @ b.transpose(-1, -2)
+    if score_metric == "dot":
+        a = _l1_normalize(a_probs, eps=eps)
+        b = _l1_normalize(b_probs, eps=eps)
+        return a @ b.transpose(-1, -2)
+    if score_metric == "cosine":
+        a = metric[..., ::2, :]
+        b = metric[..., 1::2, :]
+        a = a / (a.norm(dim=-1, keepdim=True) + eps)
+        b = b / (b.norm(dim=-1, keepdim=True) + eps)
+        return a @ b.transpose(-1, -2)
+    raise ValueError(
+        "score_metric must be one of: 'cosine', 'js', 'hellinger', 'dot'"
+    )
+
+
 def turbo_matching(
     metric: torch.Tensor,
     layer_idx:int,
@@ -94,31 +162,31 @@ def global_bipartite_matching_masked(
     mask_probs: torch.Tensor,
     layer_idx: int,
     tau: float = 0.0,
+    score_metric: str = "js",
 ) -> Tuple[Callable, dict]:
     """
-    Global bipartite matching with mask gating.
-    Only allows merges between tokens that share the same predicted mask id.
+    Global bipartite matching using mask similarity only.
+    Merges are gated by confidence.
     """
-    bsz, num_patch, _ = metric.shape
+    bsz, _, num_patch = mask_probs.shape
     if num_patch <= 1:
         return do_nothing, None
 
     with torch.no_grad():
-        metric = metric / (metric.norm(dim=-1, keepdim=True) + 1e-12)
-        conf, gid = mask_probs.max(dim=1)  # [B, Npatch]
+        conf, _ = mask_probs.max(dim=1)  # [B, Npatch]
 
-        a, b = metric[..., ::2, :], metric[..., 1::2, :]
-        scores = a @ b.transpose(-1, -2)
+        # Token-token scores from mask distributions (or cosine baseline).
+        scores = _mask_distribution_scores(
+            metric=metric,
+            mask_probs=mask_probs,
+            score_metric=score_metric,
+        )
 
         a_conf = conf[..., ::2]
         b_conf = conf[..., 1::2]
-        a_gid = gid[..., ::2]
-        b_gid = gid[..., 1::2]
-
         ok = (
             (a_conf >= tau).unsqueeze(-1)
             & (b_conf >= tau).unsqueeze(-2)
-            & (a_gid.unsqueeze(-1) == b_gid.unsqueeze(-2))
         )
         scores = scores.masked_fill(~ok, -math.inf)
 
@@ -161,7 +229,4 @@ def global_bipartite_matching_masked(
     }
 
     return merge, info
-
-
-
 

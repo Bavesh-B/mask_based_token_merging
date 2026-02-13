@@ -45,6 +45,7 @@ class EoMT(nn.Module):
         local_merge_window_size: tuple[int, int] = (2, 2),
         local_merge_threshold: float = 0.88,
         merge_logging_enabled: bool = False,
+        global_merge_score_metric: str = "js",
     ):
         super().__init__()
         self.encoder = encoder
@@ -68,8 +69,14 @@ class EoMT(nn.Module):
         self.local_merge_window_size = local_merge_window_size
         self.local_merge_threshold = local_merge_threshold
         self.merge_logging_enabled = merge_logging_enabled
+        self.global_merge_score_metric = global_merge_score_metric
         if self.merge_strategy not in ("project", "rematch"):
             raise ValueError("merge_strategy must be one of: 'project', 'rematch'")
+        if self.global_merge_score_metric not in ("cosine", "js", "hellinger", "dot"):
+            raise ValueError(
+                "global_merge_score_metric must be one of: "
+                "'cosine', 'js', 'hellinger', 'dot'"
+            )
 
         self.register_buffer("attn_mask_probs", torch.ones(self.num_blocks))
 
@@ -349,6 +356,7 @@ class EoMT(nn.Module):
             vision_token_masks,
             layer_idx=layer_idx,
             tau=self.merge_conf_threshold,
+            score_metric=self.global_merge_score_metric,
         )
         merged_vision = merge(vision_tokens)
         x = torch.cat((x_for_merge[:, :protected, :], merged_vision), dim=1)
