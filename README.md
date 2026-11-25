@@ -4,7 +4,7 @@
 
 Bavesh Balaji · Letian Jiang · Alexander Wong · David Clausi · Sirisha Rambhatla
 
-Accepted to **WACV 2027**. [Paper](https://arxiv.org/abs/2610.22921) · [PDF](https://arxiv.org/pdf/2610.22921) · [WACV accepted papers](https://wacv.thecvf.com/Conferences/2027/AcceptedPapers) · [Project page source](docs/index.html)
+Accepted to **WACV 2027**. [Project page](https://bavesh-b.github.io/mask_based_token_merging/) · [Paper](https://arxiv.org/abs/2610.22921) · [PDF](https://arxiv.org/pdf/2610.22921) · [WACV accepted papers](https://wacv.thecvf.com/Conferences/2027/AcceptedPapers)
 
 MaskMerge reduces the cost of ViT-based instance segmentation. It first merges similar tokens in local windows. Object-level adaptive merging (OLAM) then uses intermediate mask predictions to constrain global cosine matching to tokens assigned to the same instance. Weighted averaging and a compact token-to-patch map preserve the information needed to reconstruct the final spatial grid.
 
