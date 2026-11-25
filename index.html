@@ -21,99 +21,225 @@
   <meta name="citation_author" content="Rambhatla, Sirisha">
   <meta name="citation_publication_date" content="2027">
   <meta name="citation_pdf_url" content="https://arxiv.org/pdf/2610.22921">
-  <meta name="theme-color" content="#fafbf8">
+  <meta name="theme-color" content="#14221f">
   <link rel="canonical" href="https://bavesh-b.github.io/mask_based_token_merging/">
   <link rel="stylesheet" href="styles.css">
+  <script defer src="project.js"></script>
   <title>MaskMerge | WACV 2027</title>
 </head>
 <body>
   <header class="site-header">
-    <nav class="wrap" aria-label="Main">
-      <a class="wordmark" href="#top">MaskMerge</a>
+    <nav class="wrap navigation" aria-label="Main navigation">
+      <a class="wordmark" href="#top">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="18" rx="1"/><rect x="13" y="3" width="8" height="7" rx="1"/><rect x="13" y="13" width="8" height="8" rx="1"/></svg>
+        MaskMerge
+      </a>
       <div class="nav-links">
+        <a href="#explore">Explore</a>
         <a href="#method">Method</a>
         <a href="#results">Results</a>
-        <a href="#citation">Citation</a>
+        <a href="#citation">Cite</a>
+        <button id="theme-toggle" class="icon-button theme-toggle" type="button" title="Dark mode" aria-label="Dark mode" aria-pressed="false" hidden>
+          <svg class="moon-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6.5 6.5 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"/></svg>
+          <svg class="sun-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42"/></svg>
+        </button>
       </div>
     </nav>
   </header>
+
   <main id="top">
-    <section class="hero wrap" aria-labelledby="title">
-      <a class="venue" href="https://wacv.thecvf.com/Conferences/2027/AcceptedPapers">WACV 2027</a>
-      <h1 id="title">MaskMerge</h1>
-      <p class="subtitle">Structure-aware Token Merging for Efficient Instance Segmentation</p>
-      <ul class="authors" aria-label="Authors">
-        <li>Bavesh Balaji</li><li>Letian Jiang</li><li>Alexander Wong</li><li>David Clausi</li><li>Sirisha Rambhatla</li>
-      </ul>
-      <p class="affiliation">University of Waterloo</p>
-      <div class="actions">
-        <a class="primary" href="https://arxiv.org/abs/2610.22921">Read the paper</a>
-        <a href="https://github.com/Bavesh-B/mask_based_token_merging">GitHub code</a>
+    <section class="hero" aria-labelledby="title">
+      <img class="hero-image" src="assets/pannuke-hero.webp" width="2342" height="497" alt="" fetchpriority="high">
+      <div class="wrap hero-content">
+        <a class="venue" href="https://wacv.thecvf.com/Conferences/2027/AcceptedPapers">WACV 2027</a>
+        <h1 id="title">MaskMerge</h1>
+        <p class="subtitle">Structure-aware Token Merging for Efficient Instance Segmentation</p>
+        <ul class="authors" aria-label="Authors">
+          <li>Bavesh Balaji</li><li>Letian Jiang</li><li>Alexander Wong</li><li>David Clausi</li><li>Sirisha Rambhatla</li>
+        </ul>
+        <p class="affiliation">University of Waterloo</p>
+        <div class="actions">
+          <a class="button primary" href="https://arxiv.org/abs/2610.22921">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 22h12a2 2 0 0 0 2-2V8l-6-6H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2Z"/><path d="M14 2v6h6M8 13h8m-8 4h6"/></svg>
+            Paper
+          </a>
+          <a class="button" href="https://arxiv.org/pdf/2610.22921">PDF</a>
+          <a class="button" href="https://github.com/Bavesh-B/mask_based_token_merging">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 6-6 6 6 6m8-12 6 6-6 6m-3-14-2 16"/></svg>
+            Code
+          </a>
+          <a class="button" href="#citation">BibTeX</a>
+        </div>
       </div>
     </section>
 
-    <section class="figure-band" aria-labelledby="figure-title">
-      <div class="wrap figure-layout">
-        <div>
-          <h2 id="figure-title">Preserve object boundaries as tokens merge</h2>
-          <p>Adjacent objects can look alike in a ViT’s feature space. MaskMerge uses coarse instance masks to keep global token merges within predicted objects.</p>
-          <p><a href="#method">How MaskMerge works ↓</a></p>
+    <div class="summary-band">
+      <dl class="wrap summary">
+        <div><dt>5.7&times;</dt><dd>Fewer cross-instance merges on PanNuke</dd></div>
+        <div><dt>+3.1 <small>mAP</small></dt><dd>Accuracy gain over ALGM on iSAID</dd></div>
+        <div><dt>1.23&times;</dt><dd>iSAID throughput relative to ALGM</dd></div>
+      </dl>
+    </div>
+
+    <section class="wrap section" id="explore" aria-labelledby="explore-title">
+      <div class="section-heading">
+        <p class="eyebrow">Qualitative results</p>
+        <h2 id="explore-title">Explore the predictions</h2>
+        <p class="lede">Compare segmentation masks and token boundaries on the same validation image.</p>
+      </div>
+      <div class="explore-controls" data-js hidden>
+        <div class="segments" id="dataset-controls" role="group" aria-label="Dataset">
+          <button type="button" data-dataset="pannuke" aria-pressed="true">PanNuke</button>
+          <button type="button" data-dataset="isaid" aria-pressed="false">iSAID</button>
+          <button type="button" data-dataset="cityscapes" aria-pressed="false">Cityscapes</button>
         </div>
-        <figure>
-          <a href="assets/teaser_figure.png">
-            <img src="assets/teaser_figure.png" width="1126" height="676" alt="Examples of cross-instance token fusion on PanNuke and iSAID, comparing ALGM with MaskMerge.">
-          </a>
-          <figcaption>Cross-instance token fusion at a matched merge budget. <a href="https://arxiv.org/html/2610.22921v1#S1.F2">Figure 2 in the paper.</a></figcaption>
+        <label class="select-label" for="compare-method">Compare with
+          <select id="compare-method">
+            <option value="algm">ALGM</option>
+            <option value="tome">ToMe</option>
+            <option value="input">Ground truth</option>
+          </select>
+        </label>
+      </div>
+      <div class="explorer">
+        <figure class="compare-figure">
+          <div class="compare-labels">
+            <span id="compare-left-label">ALGM</span>
+            <span>MaskMerge</span>
+          </div>
+          <div class="comparison-window">
+            <div class="comparison" id="comparison">
+              <img id="comparison-maskmerge" src="assets/pannuke-maskmerge.webp" width="556" height="550" alt="MaskMerge masks and token boundaries on a PanNuke image">
+              <img id="comparison-baseline" src="assets/pannuke-algm.webp" width="556" height="550" alt="ALGM masks and token boundaries on the same PanNuke image">
+              <div class="comparison-divider" aria-hidden="true">
+                <span><svg viewBox="0 0 24 24"><path d="m9 6-6 6 6 6m6-12 6 6-6 6"/></svg></span>
+              </div>
+            </div>
+          </div>
+          <label class="compare-range" data-js hidden>
+            <span>Split</span><input id="compare-slider" type="range" min="0" max="100" value="50" aria-label="Comparison split">
+          </label>
+        </figure>
+        <aside class="scene-summary" aria-labelledby="scene-title">
+          <p class="eyebrow" id="scene-domain">H&amp;E histology</p>
+          <h3 id="scene-title">PanNuke</h3>
+          <p id="scene-description">Dense fields of nuclei make visually similar instances easy to fuse. The white outlines show how each method groups patch tokens.</p>
+          <dl class="scene-metrics" aria-label="Mean best-mask IoU for the displayed example">
+            <div><dt id="scene-baseline-name">ALGM</dt><dd id="scene-baseline-iou">0.47</dd></div>
+            <div><dt>MaskMerge</dt><dd id="scene-maskmerge-iou">0.70</dd></div>
+          </dl>
+          <p class="figure-note" id="scene-score-note">Mean best-mask IoU for this example. Aggregate mAP is reported below.</p>
+        </aside>
+      </div>
+    </section>
+
+    <section class="section band" id="abstract" aria-labelledby="abstract-title">
+      <div class="wrap abstract-layout">
+        <div>
+          <p class="eyebrow">Motivation</p>
+          <h2 id="abstract-title">Similar tokens can belong to different objects</h2>
+          <p>Appearance-based merging can erase the distinction between adjacent nuclei, parked vehicles, or other objects that look alike. MaskMerge uses the segmentation model's own intermediate masks to keep global merges within predicted instances.</p>
+          <p>In the matched-budget comparison, MaskMerge reduced cross-instance merges by 5.7&times; on PanNuke and 2.9&times; on iSAID relative to ALGM.</p>
+          <a class="inline-link" href="https://arxiv.org/html/2610.22921v1#S1">Read the motivation in the paper</a>
+        </div>
+        <figure class="paper-figure">
+          <a href="assets/teaser_figure.png"><img src="assets/teaser_figure.png" width="1126" height="676" alt="ALGM pairs connect distinct nuclei, while MaskMerge pairs follow individual instances." loading="lazy"></a>
+          <figcaption>Cross-instance token fusion in PanNuke. <a href="assets/cross-instance-rates.svg">Matched-budget counts</a> &middot; <a href="https://arxiv.org/html/2610.22921v1#S1.F2">Paper figure</a></figcaption>
         </figure>
       </div>
     </section>
 
-    <section class="wrap content" id="method">
-      <h2>Method</h2>
-      <ol class="method">
-        <li><strong>Local merge.</strong> Combine similar patch tokens in non-overlapping neighborhoods after the first encoder block.</li>
-        <li><strong>Object-level merge.</strong> Predict coarse instance masks from intermediate tokens and restrict global cosine matches to tokens with the same predicted instance ID.</li>
-        <li><strong>Spatial reconstruction.</strong> Run later transformer blocks on the reduced sequence and use the token-to-patch index map to restore the grid for mask readout.</li>
-      </ol>
-    </section>
-
-    <section class="results-band" id="results">
-      <div class="wrap content">
-        <h2>Instance segmentation results</h2>
-        <p>MaskMerge improves mAP and throughput on PanNuke and iSAID. On Cityscapes it matches ALGM’s mAP with fewer FLOPs and similar throughput.</p>
-        <div class="table-scroll" tabindex="0" role="region" aria-label="Results table">
-          <table>
-            <caption>EoMT with DINOv2 ViT-B. Throughput uses batch size 4 and FP16.</caption>
-            <thead><tr><th scope="col">Dataset</th><th scope="col">Method</th><th scope="col">mAP ↑</th><th scope="col">Throughput ↑</th><th scope="col">GFLOPs ↓</th></tr></thead>
-            <tbody>
-              <tr><th scope="rowgroup" rowspan="2">PanNuke</th><td>ALGM</td><td>30.1</td><td>121.5 images/s</td><td>229</td></tr>
-              <tr class="ours"><td>MaskMerge</td><td>32.1</td><td>142.8 images/s</td><td>153</td></tr>
-            </tbody>
-            <tbody>
-              <tr><th scope="rowgroup" rowspan="2">iSAID</th><td>ALGM</td><td>33.1</td><td>168.8 tiles/s</td><td>198</td></tr>
-              <tr class="ours"><td>MaskMerge</td><td>36.2</td><td>206.9 tiles/s</td><td>182</td></tr>
-            </tbody>
-            <tbody>
-              <tr><th scope="rowgroup" rowspan="2">Cityscapes</th><td>ALGM</td><td>19.8</td><td>107.4 tiles/s</td><td>347</td></tr>
-              <tr class="ours"><td>MaskMerge</td><td>19.8</td><td>105.2 tiles/s</td><td>298</td></tr>
-            </tbody>
-          </table>
-        </div>
-        <p><a href="https://arxiv.org/html/2610.22921v1#S4">Full experiments, including MAE and Mask2Former</a></p>
+    <section class="wrap section" id="method" aria-labelledby="method-title">
+      <div class="section-heading">
+        <p class="eyebrow">Architecture</p>
+        <h2 id="method-title">How MaskMerge works</h2>
+        <p class="lede">The model merges tokens in two stages, processes the reduced sequence, and reconstructs the spatial grid for mask readout.</p>
+      </div>
+      <div class="method-layout">
+        <figure class="paper-figure architecture">
+          <a href="assets/architecture.svg"><img src="assets/architecture.svg" width="617" height="397" alt="MaskMerge architecture showing local token merging, coarse mask prediction, object-level adaptive merging, and spatial reconstruction." loading="lazy"></a>
+          <figcaption>MaskMerge on an encoder-only segmentation model. <a href="https://arxiv.org/html/2610.22921v1#S3.F3">Paper figure</a></figcaption>
+        </figure>
+        <ol class="method-steps">
+          <li><h3>Local merging</h3><p>Pool similar patch tokens in non-overlapping windows after the first encoder block.</p></li>
+          <li><h3>Object-level adaptive merging</h3><p>Predict coarse masks and use them to limit global cosine matches to tokens assigned to the same instance. Average matched tokens with weights based on their represented patch counts.</p></li>
+          <li><h3>Spatial reconstruction</h3><p>Keep later transformer blocks on the reduced sequence and gather tokens back into the original grid for mask prediction.</p></li>
+        </ol>
       </div>
     </section>
 
-    <section class="wrap content" id="citation">
-      <h2>Citation</h2>
-      <pre><code>@inproceedings{balaji2027maskmerge,
+    <section class="section band" id="results" aria-labelledby="results-title">
+      <div class="wrap">
+        <div class="section-heading">
+          <p class="eyebrow">Quantitative results</p>
+          <h2 id="results-title">Accuracy and efficiency</h2>
+          <p class="lede">MaskMerge improves the trade-off across ViT scales on PanNuke, improves accuracy and throughput on iSAID, and matches ALGM's mAP with fewer FLOPs on Cityscapes.</p>
+        </div>
+        <div class="results-layout">
+          <div>
+            <label class="select-label benchmark-select" data-js hidden>Benchmark
+              <select id="benchmark-select">
+                <optgroup label="PanNuke">
+                  <option value="pannuke-s">PanNuke / ViT-S</option>
+                  <option value="pannuke-b" selected>PanNuke / ViT-B</option>
+                  <option value="pannuke-l">PanNuke / ViT-L</option>
+                </optgroup>
+                <option value="isaid-b">iSAID / ViT-B</option>
+                <option value="cityscapes-b">Cityscapes / ViT-B</option>
+              </select>
+            </label>
+            <div class="table-scroll" tabindex="0" role="region" aria-label="Benchmark results">
+              <table>
+                <caption id="benchmark-caption">PanNuke / DINOv2 ViT-B</caption>
+                <thead><tr><th scope="col">Method</th><th scope="col">mAP</th><th id="benchmark-speed" scope="col">Images/s</th><th scope="col">GFLOPs</th></tr></thead>
+                <tbody id="benchmark-rows">
+                  <tr><th scope="row">Dense EoMT</th><td>39.4</td><td>49.1</td><td>623</td></tr>
+                  <tr><th scope="row">ToMe</th><td>29.5</td><td>114.0</td><td>369</td></tr>
+                  <tr><th scope="row">ALGM</th><td>30.1</td><td>121.5</td><td>229</td></tr>
+                  <tr class="ours"><th scope="row">MaskMerge</th><td>32.1</td><td>142.8</td><td>153</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <p class="figure-note">EoMT with DINOv2, batch size 4, FP16 inference. <a href="https://arxiv.org/html/2610.22921v1#S4.T1">Full benchmark in the paper</a></p>
+            <p id="benchmark-summary" class="benchmark-summary" aria-live="polite">On PanNuke with ViT-B, MaskMerge gains 2.0 mAP over ALGM and uses 76 fewer GFLOPs per image.</p>
+          </div>
+          <figure class="paper-figure pareto">
+            <a href="assets/pannuke-pareto.svg"><img src="assets/pannuke-pareto.svg" width="685" height="568" alt="PanNuke mAP versus throughput for EoMT, ToMe, ALGM, and MaskMerge across DINOv2 ViT-S, ViT-B, and ViT-L." loading="lazy"></a>
+            <figcaption>PanNuke throughput and accuracy across backbone sizes. <a href="https://arxiv.org/html/2610.22921v1#S1.F1">Paper figure</a></figcaption>
+          </figure>
+        </div>
+        <div class="transfer">
+          <div><h3>MAE pretraining</h3><p>On PanNuke with MAE ViT-B, MaskMerge reaches 34.0 mAP and 33.4 small-object AP, compared with 32.0 and 31.5 for ALGM.</p><a href="https://arxiv.org/html/2610.22921v1#S4.T2">MAE results</a></div>
+          <div><h3>Mask2Former</h3><p>On PanNuke with DINOv2 ViT-B, the single-pass MaskMerge extension reaches 32.53 mAP at 36.1 images/s. The ToMe comparison reaches 30.69 mAP at the same throughput.</p><a href="https://arxiv.org/html/2610.22921v1#S4.T3">Mask2Former results</a></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="wrap section citation-layout" id="citation" aria-labelledby="citation-title">
+      <div class="section-heading">
+        <p class="eyebrow">Resources</p>
+        <h2 id="citation-title">Code &amp; citation</h2>
+        <p class="lede">Training configs, evaluation commands, and benchmark scripts are available in the release.</p>
+        <a class="inline-link" href="https://github.com/Bavesh-B/mask_based_token_merging#train">Reproduction guide</a>
+      </div>
+      <div class="citation-code">
+        <div class="citation-toolbar">
+          <span>BibTeX</span>
+          <button type="button" id="copy-citation" class="icon-button" title="Copy BibTeX" aria-label="Copy BibTeX" hidden>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>
+          </button>
+        </div>
+        <pre><code id="bibtex">@inproceedings{balaji2027maskmerge,
   title = {MaskMerge: Structure-aware Token Merging for Efficient Instance Segmentation},
   author = {Balaji, Bavesh and Jiang, Letian and Wong, Alexander and Clausi, David and Rambhatla, Sirisha},
   booktitle = {IEEE/CVF Winter Conference on Applications of Computer Vision (WACV)},
   year = {2027},
   url = {https://arxiv.org/abs/2610.22921}
 }</code></pre>
+        <p id="copy-status" class="sr-only" role="status"></p>
+      </div>
     </section>
   </main>
-  <footer><div class="wrap">MaskMerge · WACV 2027 <a href="#top">Back to top ↑</a></div></footer>
+  <footer><div class="wrap"><span>MaskMerge &middot; WACV 2027</span><span>Paper figures licensed <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>.</span><a href="#top">Back to top</a></div></footer>
 </body>
 </html>
