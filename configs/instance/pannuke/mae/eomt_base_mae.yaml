@@ -1,0 +1,41 @@
+# SECOND MODEL (backbone-generalization study): EoMT-Base with an MAE ViT-B
+# backbone instead of DINOv2. MAE (masked-autoencoding, ImageNet) is a
+# fundamentally different self-supervised paradigm from DINOv2 (self-
+# distillation, LVD-142M), so the token-similarity structure the merging
+# methods exploit is genuinely different. If MaskMerge >= ALGM reproduces here,
+# the result is not a DINOv2 artifact.
+#
+# Identical EoMT recipe to the DINOv2 dense PanNuke fine-tune (num_blocks=4,
+# masked_attn + 4-stage annealing, patch16 @ 640x640 -> 40x40 = 1600 tokens),
+# only the backbone changes. MAE has prefix=1 (cls only) vs DINOv2's prefix=5
+# (4 registers); the ViT wrapper handles this generically.
+#
+# Single-GPU batch 16 = the original 2-GPU x 8 effective batch, so the 309
+# steps/epoch and the annealing schedule below transfer 1:1 (18560 steps).
+# This dense model is BOTH the ceiling AND the warm-start source for MaskMerge.
+trainer:
+  max_epochs: 60
+  check_val_every_n_epoch: 5
+model:
+  class_path: training.mask_classification_instance.MaskClassificationInstance
+  init_args:
+    attn_mask_annealing_enabled: True
+    attn_mask_annealing_start_steps: [3712, 7424, 11136, 14848]
+    attn_mask_annealing_end_steps: [7424, 11136, 14848, 18560]
+    network:
+      class_path: models.eomt_ori.EoMT
+      init_args:
+        num_q: 200
+        num_blocks: 4
+        masked_attn_enabled: True
+        encoder:
+          class_path: models.vit.ViT
+          init_args:
+            patch_size: 16
+            backbone_name: vit_base_patch16_224.mae
+data:
+  class_path: datasets.pannuke_instance.PanNukeInstance
+  init_args:
+    num_classes: 5
+    img_size: [640, 640]
+    batch_size: 16

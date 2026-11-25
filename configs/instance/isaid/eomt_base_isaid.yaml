@@ -1,0 +1,31 @@
+# EoMT-Base dense on iSAID aerial instance segmentation (twin-dense: parking
+# lots of near-identical Small_Vehicles, harbors of ships, tank farms). 512x512
+# tiles (patch16 -> 32x32 = 1024 tokens), 15 classes. This is the accuracy
+# ceiling the merge methods are compared against, and the source for the
+# warm-start MaskMerge. Masked-attention annealing over ~50k steps.
+trainer:
+  max_epochs: 570
+  check_val_every_n_epoch: 50
+model:
+  class_path: training.mask_classification_instance.MaskClassificationInstance
+  init_args:
+    attn_mask_annealing_enabled: True
+    attn_mask_annealing_start_steps: [10000, 20000, 30000, 40000]
+    attn_mask_annealing_end_steps: [20000, 30000, 40000, 50000]
+    network:
+      class_path: models.eomt_ori.EoMT
+      init_args:
+        num_q: 200
+        num_blocks: 4
+        masked_attn_enabled: True
+        encoder:
+          class_path: models.vit.ViT
+          init_args:
+            patch_size: 16
+            backbone_name: vit_base_patch14_reg4_dinov2
+data:
+  class_path: datasets.isaid_instance.ISAIDInstance
+  init_args:
+    num_classes: 15
+    img_size: [512, 512]
+    batch_size: 8

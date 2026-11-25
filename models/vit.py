@@ -19,6 +19,7 @@ class ViT(nn.Module):
         patch_size=16,
         backbone_name="vit_large_patch14_reg4_dinov2",
         ckpt_path: Optional[str] = None,
+        dynamic_img_size: bool = False,
     ):
         super().__init__()
 
@@ -30,12 +31,18 @@ class ViT(nn.Module):
                 img_size,
             )
         else:
+            # dynamic_img_size lets a model TRAINED at one resolution be
+            # evaluated at another (e.g. train 512x1024, eval native
+            # 1024x2048): timm interpolates the positional embeddings per
+            # forward instead of asserting a fixed input size. Weights are
+            # unchanged, so a checkpoint trained without it loads fine.
             self.backbone = timm.create_model(
                 backbone_name,
                 pretrained=ckpt_path is None,
                 img_size=img_size,
                 patch_size=patch_size,
                 num_classes=0,
+                dynamic_img_size=dynamic_img_size,
             )
 
         pixel_mean = torch.tensor([0.485, 0.456, 0.406]).reshape(1, -1, 1, 1)

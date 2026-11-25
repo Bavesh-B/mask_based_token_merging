@@ -1,0 +1,32 @@
+# Faithful/original ALGM on the MAE-backbone EoMT, zero-shot on the dense MAE
+# best.pt (second-model study). The published cosine method exactly: 2x2 window
+# merge at layer 1 + one global adaptive-budget merge at layer 7. This is the
+# cosine baseline MaskMerge must beat, now on MAE tokens rather than DINOv2 --
+# the test of whether the mask-aware advantage is backbone-independent.
+trainer:
+  max_epochs: 1
+model:
+  class_path: training.ideas_mask_classification_instance.IdeasMaskClassificationInstance
+  init_args:
+    attn_mask_annealing_enabled: False
+    network:
+      class_path: models.eomt_compact_tome.EoMT
+      init_args:
+        num_q: 200
+        num_blocks: 4
+        masked_attn_enabled: True
+        algm_selected_layers: [1, 5]
+        local_merge_window_size: [2, 2]
+        local_merge_threshold: 0.945
+        merge_logging_enabled: False
+        encoder:
+          class_path: models.vit.ViT
+          init_args:
+            patch_size: 16
+            backbone_name: vit_base_patch16_224.mae
+data:
+  class_path: datasets.pannuke_instance.PanNukeInstance
+  init_args:
+    num_classes: 5
+    img_size: [640, 640]
+    batch_size: 4

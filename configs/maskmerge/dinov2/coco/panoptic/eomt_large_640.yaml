@@ -1,0 +1,40 @@
+trainer:
+  max_epochs: 7
+model:
+  class_path: training.mask_classification_panoptic.MaskClassificationPanoptic
+  init_args:
+    attn_mask_annealing_enabled: False
+    query_lr_mult: 2.0
+    query_lr_mult_end: 1.0
+    query_lr_schedule: cosine
+    head_lr_mult: 1.0
+    network:
+      class_path: models.maskmerge.EoMT
+      init_args:
+        num_q: 200
+        num_blocks: 4
+        masked_attn_enabled: False
+        local_merge_enabled: True
+        local_merge_after_layer: 1
+        local_merge_window_size: [2, 2]
+        local_merge_threshold: 0.88
+        merge_start_layer: 7
+        merge_interval: 20
+        merge_conf_threshold: 0.7
+        merge_conf_threshold_end: 0.0
+        merge_schedule_epochs: 7
+        merge_schedule_enabled: True
+        global_merge_score_metric: cosine
+        global_merge_mask_constraint: True
+        global_merge_min_ratio: 0.0
+        olam_mask_source: current
+        query_insert_layer: 7
+        query_reinsert_layer: 20
+        encoder:
+          class_path: models.vit.ViT
+          init_args:
+            patch_size: 16
+data:
+  class_path: datasets.coco_panoptic.COCOPanoptic
+  init_args:
+    stuff_classes: [80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 113, 114, 115, 116, 117, 118, 119, 120, 121, 122, 123, 124, 125, 126, 127, 128, 129, 130, 131, 132]

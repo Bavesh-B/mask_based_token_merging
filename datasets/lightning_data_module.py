@@ -40,12 +40,33 @@ class LightningDataModule(lightning.LightningDataModule):
     @staticmethod
     def train_collate(batch):
         imgs, targets = [], []
+        entropy_maps_batch = []
 
-        for img, target in batch:
+        for sample in batch:
+            if len(sample) == 3:
+                img, target, entropy_maps = sample
+                if entropy_maps is not None:
+                    entropy_maps_batch.append(entropy_maps)
+            else:
+                img, target = sample
             imgs.append(img)
             targets.append(target)
 
-        return torch.stack(imgs), targets
+        imgs = torch.stack(imgs)
+        if not entropy_maps_batch:
+            return imgs, targets
+        if len(entropy_maps_batch) != len(batch):
+            raise ValueError(
+                "Mixed samples with and without entropy maps in one batch. "
+                "Check that entropy transforms are enabled consistently."
+            )
+
+        patch_sizes = sorted(entropy_maps_batch[0].keys())
+        batched_maps = {
+            ps: torch.stack([em[ps] for em in entropy_maps_batch], dim=0)
+            for ps in patch_sizes
+        }
+        return imgs, targets, batched_maps
 
     @staticmethod
     def eval_collate(batch):

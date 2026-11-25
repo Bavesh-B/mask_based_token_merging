@@ -1,0 +1,33 @@
+# Warm-start from the dense checkpoint trained on the same dataset.
+trainer:
+  max_epochs: 15
+model:
+  class_path: training.mask_classification_instance.MaskClassificationInstance
+  init_args:
+    attn_mask_annealing_enabled: false
+    network:
+      class_path: models.maskmerge.EoMT
+      init_args:
+        num_q: 200
+        num_blocks: 4
+        masked_attn_enabled: false
+        local_merge_after_layer: 1
+        local_merge_window_size: [2, 2]
+        local_merge_threshold: 0.88
+        merge_start_layer: 5
+        query_insert_layer: 5
+        query_reinsert_layer: 9
+        merge_conf_threshold: 0.7
+        merge_conf_threshold_end: 0.0
+        merge_schedule_epochs: 15
+        encoder:
+          class_path: models.vit.ViT
+          init_args:
+            patch_size: 16
+            backbone_name: vit_base_patch14_reg4_dinov2
+data:
+  class_path: datasets.pannuke_instance.PanNukeInstance
+  init_args:
+    num_classes: 5
+    img_size: [640, 640]
+    batch_size: 8

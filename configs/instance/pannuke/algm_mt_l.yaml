@@ -1,0 +1,32 @@
+# Faithful/original ALGM on PanNuke nuclei, zero-shot on best.pt (dense mAP
+# 39.4). The PUBLISHED method exactly: 2x2 window merge at layer 1 + one global
+# adaptive-budget merge at layer 7. Its realised token count is data-dependent
+# (measure it) -- this answers whether the published method preserves nuclei
+# at its OWN operating point.
+trainer:
+  max_epochs: 1
+model:
+  class_path: training.ideas_mask_classification_instance.IdeasMaskClassificationInstance
+  init_args:
+    attn_mask_annealing_enabled: False
+    network:
+      class_path: models.eomt_merged_tail_algm.EoMT
+      init_args:
+        num_q: 200
+        num_blocks: 4
+        masked_attn_enabled: False
+        algm_selected_layers: [1, 5]
+        local_merge_window_size: [2, 2]
+        local_merge_threshold: 0.945
+        merge_logging_enabled: False
+        encoder:
+          class_path: models.vit.ViT
+          init_args:
+            patch_size: 16
+            backbone_name: vit_large_patch14_reg4_dinov2
+data:
+  class_path: datasets.pannuke_instance.PanNukeInstance
+  init_args:
+    num_classes: 5
+    img_size: [640, 640]
+    batch_size: 4

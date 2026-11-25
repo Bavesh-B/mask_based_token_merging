@@ -131,6 +131,9 @@ class ADE20KPanoptic(LightningDataModule):
         num_classes: int = 150,
         color_jitter_enabled=True,
         scale_range=(0.1, 2.0),
+        entropy_enabled: bool = False,
+        entropy_patch_size: int = 16,
+        entropy_num_scales: int = 2,
         check_empty_targets=True,
     ) -> None:
         super().__init__(
@@ -148,6 +151,9 @@ class ADE20KPanoptic(LightningDataModule):
             img_size=img_size,
             color_jitter_enabled=color_jitter_enabled,
             scale_range=scale_range,
+            entropy_enabled=entropy_enabled,
+            entropy_patch_size=entropy_patch_size,
+            entropy_num_scales=entropy_num_scales,
         )
 
     @staticmethod

@@ -1,0 +1,9 @@
+cython
+scipy
+shapely
+timm==1.0.26
+einops==0.8.1
+pyarrow==25.0.0
+h5py
+submitit
+scikit-image

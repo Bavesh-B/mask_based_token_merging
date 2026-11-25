@@ -1,0 +1,45 @@
+# EoMT-Base on Cityscapes instance segmentation (crowded urban, ~19 instances/img) (standard EoMT recipe:
+# DINOv2 ViT-Base backbone, timm-pretrained, + freshly trained EoMT head).
+#
+# Uses models.eomt_ori.EoMT -- the PRISTINE class. (models.eomt.EoMT in this
+# repo is a merging research variant whose default merge_start_layer never
+# inserts queries at 12 layers, silently corrupting a "dense" baseline.)
+# eomt_ori is what models.eomt_original_algm / eomt_compact_algm subclass, so
+# this dense baseline and every merge variant share an identical backbone path.
+#
+# Backbone patch16 @ 640x640 (256px nuclei patches upscaled -> 40x40 = 1600
+# tokens), so every cascade schedule and token budget already measured on
+# ADE/COCO transfers 1:1. num_blocks=4 matches the working COCO-instance dense.
+#
+# Data: folds 1+2 train (4950 imgs), fold 3 val (2608). 5 nuclei thing classes.
+# This is the DENSE baseline the merge methods are evaluated against.
+#
+# Annealing: 4 stages (num_blocks=4) at 0.2/0.4/0.6/0.8 -> 0.4/0.6/0.8/1.0 of
+# ~18560 steps (4950 imgs, batch 8 x 2 GPUs ~= 309 steps/epoch, 60 epochs).
+trainer:
+  max_epochs: 60
+  check_val_every_n_epoch: 5
+model:
+  class_path: training.mask_classification_instance.MaskClassificationInstance
+  init_args:
+    attn_mask_annealing_enabled: True
+    attn_mask_annealing_start_steps: [2232, 4464, 6696, 8928]
+    attn_mask_annealing_end_steps: [4464, 6696, 8928, 11160]
+    network:
+      class_path: models.eomt_ori.EoMT
+      init_args:
+        num_q: 200
+        num_blocks: 4
+        masked_attn_enabled: True
+        encoder:
+          class_path: models.vit.ViT
+          init_args:
+            patch_size: 16
+            backbone_name: vit_base_patch14_reg4_dinov2
+data:
+  class_path: datasets.cityscapes_instance.CityscapesInstance
+  init_args:
+    num_classes: 8
+    val_size: [512, 1024]
+    img_size: [512, 1024]
+    batch_size: 8

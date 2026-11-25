@@ -1,0 +1,52 @@
+# WARM-START MaskMerge on the MAE-backbone EoMT (second-model study).
+# Init from the trained dense MAE EoMT, then fine-tune WITH merging -- the
+# proven warm-start recipe (Cityscapes/iSAID). num_blocks=4 matches dense so all
+# weights load clean; masked_attn on (annealing off, dense already annealed);
+# merge_conf_threshold ramps 0.7->0 over 100 epochs; keeps the merged tail for
+# speed. Mask-constrained (global_merge_mask_constraint, olam current) = the
+# identity-aware criterion that beats cosine on adjacent twins (twin-nuclei).
+# ckpt_path is set at launch to the dense MAE checkpoint.
+#
+# query_insert_layer 7 / reinsert 10 match the PanNuke DINOv2 MaskMerge, so this
+# is a clean backbone swap vs that run. batch 16 = original effective batch.
+trainer:
+  max_epochs: 100
+  check_val_every_n_epoch: 10
+model:
+  class_path: training.mask_classification_instance.MaskClassificationInstance
+  init_args:
+    load_ckpt_class_head: True
+    attn_mask_annealing_enabled: False
+    network:
+      class_path: models.maskmerge.EoMT
+      init_args:
+        num_q: 200
+        num_blocks: 4
+        masked_attn_enabled: True
+        local_merge_enabled: True
+        local_merge_after_layer: 1
+        local_merge_window_size: [2, 2]
+        local_merge_threshold: 0.88
+        merge_start_layer: 7
+        merge_interval: 20
+        merge_conf_threshold: 0.7
+        merge_conf_threshold_end: 0.0
+        merge_schedule_epochs: 100
+        merge_schedule_enabled: True
+        global_merge_score_metric: cosine
+        global_merge_mask_constraint: True
+        global_merge_min_ratio: 0.0
+        olam_mask_source: current
+        query_insert_layer: 7
+        query_reinsert_layer: 10
+        encoder:
+          class_path: models.vit.ViT
+          init_args:
+            patch_size: 16
+            backbone_name: vit_base_patch16_224.mae
+data:
+  class_path: datasets.pannuke_instance.PanNukeInstance
+  init_args:
+    num_classes: 5
+    img_size: [640, 640]
+    batch_size: 16

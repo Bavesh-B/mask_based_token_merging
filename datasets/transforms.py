@@ -12,6 +12,7 @@ from torchvision.transforms.v2 import functional as F
 from torchvision.tv_tensors import wrap, TVTensor
 from torch import nn, Tensor
 from typing import Any, Union
+from models.algm_layers.apt_entropy import compute_patch_entropy_batched
 
 
 class Transforms(nn.Module):
@@ -20,6 +21,9 @@ class Transforms(nn.Module):
         img_size: tuple[int, int],
         color_jitter_enabled: bool,
         scale_range: tuple[float, float],
+        entropy_enabled: bool = False,
+        entropy_patch_size: int = 16,
+        entropy_num_scales: int = 2,
         max_brightness_delta: int = 32,
         max_contrast_factor: float = 0.5,
         saturation_factor: float = 0.5,
@@ -33,6 +37,9 @@ class Transforms(nn.Module):
         self.max_contrast_factor = max_contrast_factor
         self.max_saturation_factor = saturation_factor
         self.max_hue_delta = max_hue_delta / 360.0
+        self.entropy_enabled = entropy_enabled
+        self.entropy_patch_size = int(entropy_patch_size)
+        self.entropy_num_scales = int(entropy_num_scales)
 
         self.random_horizontal_flip = T.RandomHorizontalFlip()
         self.scale_jitter = T.ScaleJitter(target_size=img_size, scale_range=scale_range)
@@ -96,18 +103,30 @@ class Transforms(nn.Module):
     def _filter(self, target: dict[str, Union[Tensor, TVTensor]], keep: Tensor) -> dict:
         return {k: wrap(v[keep], like=v) for k, v in target.items()}
 
+    def _compute_entropy_maps(self, img: Tensor) -> dict[int, Tensor]:
+        # img is post-geometry (crop/resize/flip), pre-color/normalize.
+        img_float = img.float()
+        maps = compute_patch_entropy_batched(
+            img_float.unsqueeze(0),
+            patch_size=self.entropy_patch_size,
+            num_scales=self.entropy_num_scales,
+        )
+        return {ps: emap[0] for ps, emap in maps.items()}
+
     def forward(
         self, img: Tensor, target: dict[str, Union[Tensor, TVTensor]]
-    ) -> tuple[Tensor, dict[str, Union[Tensor, TVTensor]]]:
+    ) -> tuple[Tensor, dict[str, Union[Tensor, TVTensor]], dict[int, Tensor] | None]:
         img_orig, target_orig = img, target
 
         target = self._filter(target, ~target["is_crowd"])
 
-        img = self.color_jitter(img)
+        # APT-style ordering: geometry first, entropy, then pixel-value transforms.
         img, target = self.random_horizontal_flip(img, target)
         img, target = self.scale_jitter(img, target)
         img, target = self.pad(img, target)
         img, target = self.random_crop(img, target)
+        entropy_maps = self._compute_entropy_maps(img) if self.entropy_enabled else None
+        img = self.color_jitter(img)
 
         valid = target["masks"].flatten(1).any(1)
         if not valid.any():
@@ -115,4 +134,4 @@ class Transforms(nn.Module):
 
         target = self._filter(target, valid)
 
-        return img, target
+        return img, target, entropy_maps

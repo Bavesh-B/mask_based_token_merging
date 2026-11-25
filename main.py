@@ -14,7 +14,7 @@ import logging
 import torch
 import warnings
 from lightning.pytorch import cli
-from lightning.pytorch.callbacks import ModelSummary, LearningRateMonitor
+from lightning.pytorch.callbacks import ModelSummary, LearningRateMonitor, ModelCheckpoint
 from lightning.pytorch.loops.training_epoch_loop import _TrainingEpochLoop
 from lightning.pytorch.loops.fetchers import _DataFetcher, _DataLoaderIterDataFetcher
 
@@ -140,12 +140,15 @@ class LightningCLI(cli.LightningCLI):
         )
 
     def fit(self, model, **kwargs):
-        if hasattr(self.trainer.logger.experiment, "log_code"):
-            is_gitignored = parse_gitignore(".gitignore")
-            include_fn = lambda path: path.endswith(".py") or path.endswith(".yaml")
-            self.trainer.logger.experiment.log_code(
-                ".", include_fn=include_fn, exclude_fn=is_gitignored
-            )
+        if self.trainer.logger is not None:
+            if hasattr(self.trainer.logger, "log_model"):
+                self.trainer.logger._log_model = False
+            if hasattr(self.trainer.logger.experiment, "log_code"):
+                is_gitignored = parse_gitignore(".gitignore")
+                include_fn = lambda path: path.endswith(".py") or path.endswith(".yaml")
+                self.trainer.logger.experiment.log_code(
+                    ".", include_fn=include_fn, exclude_fn=is_gitignored
+                )
 
         self.trainer.fit_loop.epoch_loop._should_check_val_fx = MethodType(
             _should_check_val_fx, self.trainer.fit_loop.epoch_loop
@@ -171,6 +174,12 @@ def cli_main():
             "callbacks": [
                 ModelSummary(max_depth=3),
                 LearningRateMonitor(logging_interval="epoch"),
+                ModelCheckpoint(
+                    dirpath=os.environ.get("EOMT_CHECKPOINT_DIR", "checkpoints"),
+                    filename="last",
+                    save_last=True,
+                    save_top_k=0,
+                ),
             ],
             "devices": 1,
             "gradient_clip_val": 0.01,

@@ -1,0 +1,34 @@
+# Faithful/original ALGM on iSAID, test-time (zero-shot) on the dense EoMT.
+# The published cosine method: 2x2 window merge at layer 1 + one global
+# adaptive-budget cosine merge at layer 5 (ViT-B). This is the appearance-only
+# baseline that should fuse adjacent identical vehicles/ships. Realised token
+# budget is data-dependent (measure it); retune local_merge_threshold to
+# budget-match MaskMerge for a fair speed/accuracy point if needed.
+trainer:
+  max_epochs: 1
+model:
+  class_path: training.ideas_mask_classification_instance.IdeasMaskClassificationInstance
+  init_args:
+    attn_mask_annealing_enabled: False
+    network:
+      class_path: models.eomt_merged_tail_tome.EoMT
+      init_args:
+        num_q: 200
+        num_blocks: 4
+        masked_attn_enabled: False
+        algm_selected_layers: [1, 5]
+        local_merge_window_size: [2, 2]
+        local_merge_threshold: 0.88
+        merge_logging_enabled: False
+        global_merge_ratio: 0.3
+        encoder:
+          class_path: models.vit.ViT
+          init_args:
+            patch_size: 16
+            backbone_name: vit_base_patch14_reg4_dinov2
+data:
+  class_path: datasets.isaid_instance.ISAIDInstance
+  init_args:
+    num_classes: 15
+    img_size: [512, 512]
+    batch_size: 4

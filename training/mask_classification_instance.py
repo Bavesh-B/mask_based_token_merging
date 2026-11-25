@@ -29,6 +29,8 @@ class MaskClassificationInstance(LightningModule):
         llrd: float = 0.8,
         llrd_l2_enabled: bool = True,
         lr_mult: float = 1.0,
+        query_lr_mult: float = 1.0,
+        head_lr_mult: float = 1.0,
         weight_decay: float = 0.05,
         num_points: int = 12544,
         oversample_ratio: float = 3.0,
@@ -57,6 +59,8 @@ class MaskClassificationInstance(LightningModule):
             llrd=llrd,
             llrd_l2_enabled=llrd_l2_enabled,
             lr_mult=lr_mult,
+            query_lr_mult=query_lr_mult,
+            head_lr_mult=head_lr_mult,
             weight_decay=weight_decay,
             poly_power=poly_power,
             warmup_steps=warmup_steps,
@@ -96,6 +100,11 @@ class MaskClassificationInstance(LightningModule):
         img_sizes = [img.shape[-2:] for img in imgs]
         transformed_imgs = self.resize_and_pad_imgs_instance_panoptic(imgs)
         mask_logits_per_layer, class_logits_per_layer = self(transformed_imgs)
+        num_predictions = len(mask_logits_per_layer)
+        # MaskMerge omits auxiliary predictions in eval mode. Always assign
+        # the final prediction to the metric reported as val_ap_all.
+        metric_indices = (*range(num_predictions - 1), len(self.metrics) - 1)
+        self._validation_metric_indices = metric_indices
 
         for i, (mask_logits, class_logits) in enumerate(
             list(zip(mask_logits_per_layer, class_logits_per_layer))
@@ -144,10 +153,12 @@ class MaskClassificationInstance(LightningModule):
                     )
                 )
 
-            self.update_metrics_instance(preds, targets, i)
+            self.update_metrics_instance(preds, targets, metric_indices[i])
 
     def on_validation_epoch_end(self):
-        self._on_eval_epoch_end_instance("val")
+        self._on_eval_epoch_end_instance(
+            "val", getattr(self, "_validation_metric_indices", None)
+        )
 
     def on_validation_end(self):
         self._on_eval_end_instance("val")
