@@ -1,0 +1,29 @@
+# Evaluate the corresponding MaskMerge weights from the GitHub release.
+model:
+  class_path: training.mask_classification_instance.MaskClassificationInstance
+  init_args:
+    attn_mask_annealing_enabled: false
+    network:
+      class_path: models.maskmerge.EoMT
+      init_args:
+        num_q: 200
+        num_blocks: 3
+        masked_attn_enabled: false
+        local_merge_after_layer: 1
+        local_merge_threshold: 0.88
+        merge_start_layer: 7
+        query_insert_layer: 7
+        query_reinsert_layer: 10
+        merge_conf_threshold: 0.0
+        merge_schedule_enabled: false
+        encoder:
+          class_path: models.vit.ViT
+          init_args:
+            patch_size: 16
+            backbone_name: vit_base_patch14_reg4_dinov2
+data:
+  class_path: datasets.pannuke_instance.PanNukeInstance
+  init_args:
+    num_classes: 5
+    img_size: [640, 640]
+    batch_size: 4

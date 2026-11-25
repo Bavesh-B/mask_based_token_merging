@@ -1,21 +1,10 @@
 # Reproducing the experiments
 
-## Checkpoints and layer placement
+## MaskMerge training and evaluation
 
-The primary MaskMerge configs use local merging at block 1 and OLAM at block 5 for ViT-S/B or block 8 for ViT-L. Block numbers are one-based. MaskMerge anneals its mask confidence threshold from 0.7 to 0 over the 15-epoch warm-start. Use `--model.network.merge_conf_threshold 0.0` for final Lightning validation.
+The [training configs](README.md#train) implement the paper's 15-epoch warm-start, with local merging at block 1 and OLAM at block 5 for ViT-S/B or block 8 for ViT-L. Block numbers are one-based. Use `--model.network.merge_conf_threshold 0.0` to validate the weights from your own completed run.
 
-The research workspace also contained the historical configs below. Use these when loading a checkpoint from those runs because layer placement and the number of query blocks affect predictions and checkpoint loading. Some of these runs used longer fine-tuning schedules than the camera-ready recipe.
-
-| Dataset | Historical MaskMerge config |
-|---|---|
-| PanNuke ViT-B | [maskmerge_stage2.yaml](configs/instance/pannuke/maskmerge_stage2.yaml) |
-| PanNuke ViT-S | [maskmerge_s.yaml](configs/instance/pannuke/maskmerge_s.yaml) |
-| PanNuke ViT-L | [maskmerge_l_stage1.yaml](configs/instance/pannuke/maskmerge_l_stage1.yaml) |
-| PanNuke MAE | [maskmerge_mae_warmstart.yaml](configs/instance/pannuke/mae/maskmerge_mae_warmstart.yaml) |
-| iSAID | [maskmerge_isaid_warmstart.yaml](configs/instance/isaid/maskmerge_isaid_warmstart.yaml) |
-| Cityscapes | [maskmerge_512_warmstart.yaml](configs/instance/cityscapes/maskmerge_512_warmstart.yaml) |
-
-The reported values in the README are paper results. The release training commands and historical config paths document the workflow, and exact AP and throughput from a new run depend on the checkpoint, operating point, and hardware.
+The [download guide](MODEL_WEIGHTS.md) lists the evaluation settings to use with each released weight file.
 
 ## Dense, ALGM, and ToMe
 
@@ -23,7 +12,7 @@ Validate the matching dense EoMT checkpoint using the corresponding dense config
 
 | Dataset / backbone | ALGM | ToMe |
 |---|---|---|
-| PanNuke / ViT-B | [algm_mergedtail.yaml](configs/instance/pannuke/algm_mergedtail.yaml) | [mtome_r40.yaml](configs/instance/pannuke/mtome_r40.yaml) |
+| PanNuke / ViT-B | [algm_mergedtail.yaml](configs/instance/pannuke/algm_mergedtail.yaml) | [mtome_r20.yaml](configs/instance/pannuke/mtome_r20.yaml) |
 | PanNuke / ViT-S | [algm_mt_s.yaml](configs/instance/pannuke/algm_mt_s.yaml) | [tome_mt_s.yaml](configs/instance/pannuke/tome_mt_s.yaml) |
 | PanNuke / ViT-L | [algm_mt_l.yaml](configs/instance/pannuke/algm_mt_l.yaml) | [tome_mt_l.yaml](configs/instance/pannuke/tome_mt_l.yaml) |
 | PanNuke / MAE | [algm_mae.yaml](configs/instance/pannuke/mae/algm_mae.yaml) | [tome_mae.yaml](configs/instance/pannuke/mae/tome_mae.yaml) |
@@ -35,6 +24,10 @@ Validate the matching dense EoMT checkpoint using the corresponding dense config
 Run each variant on the same GPU, with the same batch size and input resolution. Forward throughput uses real validation inputs, discards warm-up batches, and synchronizes CUDA around timed forwards. Dataset loading and AP computation are outside the timed region. FLOPs are operator counts and their coverage can vary by PyTorch version.
 
 ```bash
+MASKMERGE=configs/checkpoints/pannuke-vit-b.yaml
+CKPT=checkpoints/pannuke-vit-b-maskmerge.pt
+DATA=/path/to/pannuke
+
 python -m scripts.instance.throughput_pannuke --config "$MASKMERGE" \
   --ckpt "$CKPT" --data-path "$DATA" --tag maskmerge --batch-size 4
 

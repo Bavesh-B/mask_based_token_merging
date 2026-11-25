@@ -11,8 +11,9 @@ metric, with CUDA sync and warmup.
 
 Run:
   python scripts/instance/throughput_pannuke.py \
-    --config configs/instance/pannuke/maskmerge_stage2.yaml \
-    --ckpt <mm_stage2>/snapshots/epoch_final.ckpt --tag maskmerge
+    --config configs/checkpoints/pannuke-vit-b.yaml \
+    --ckpt checkpoints/pannuke-vit-b-maskmerge.pt --data-path /path/to/pannuke \
+    --tag maskmerge
 """
 from __future__ import annotations
 

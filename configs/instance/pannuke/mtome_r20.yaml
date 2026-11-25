@@ -1,0 +1,27 @@
+# ToMe comparison on PanNuke with the dense ViT-B weights.
+model:
+  class_path: training.ideas_mask_classification_instance.IdeasMaskClassificationInstance
+  init_args:
+    attn_mask_annealing_enabled: False
+    network:
+      class_path: models.eomt_merged_tail_tome.EoMT
+      init_args:
+        num_q: 200
+        num_blocks: 4
+        masked_attn_enabled: False
+        algm_selected_layers: [1, 5]
+        local_merge_window_size: [2, 2]
+        local_merge_threshold: 0.945
+        merge_logging_enabled: False
+        global_merge_ratio: 0.2
+        encoder:
+          class_path: models.vit.ViT
+          init_args:
+            patch_size: 16
+            backbone_name: vit_base_patch14_reg4_dinov2
+data:
+  class_path: datasets.pannuke_instance.PanNukeInstance
+  init_args:
+    num_classes: 5
+    img_size: [640, 640]
+    batch_size: 4

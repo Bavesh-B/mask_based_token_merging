@@ -4,7 +4,7 @@ Bavesh Balaji · Letian Jiang · Alexander Wong · David Clausi · Sirisha Rambh
 
 Accepted to **WACV 2027**. [Project page](https://bavesh-b.github.io/mask_based_token_merging/) · [Paper](https://arxiv.org/abs/2610.22921) · [PDF](https://arxiv.org/pdf/2610.22921) · [Accepted papers](https://wacv.thecvf.com/Conferences/2027/AcceptedPapers)
 
-[Results](#paper-results) · [Install](#install) · [Train](#train) · [Evaluate](#evaluate) · [Citation](#citation)
+[Results](#paper-results) · [Model weights](MODEL_WEIGHTS.md) · [Install](#install) · [Train](#train) · [Evaluate](#evaluate) · [Citation](#citation)
 
 This is the official implementation of **MaskMerge**, a token merging method for efficient instance segmentation. MaskMerge first merges similar tokens in local windows. Object-level adaptive merging (OLAM) uses intermediate mask predictions to constrain global matches to tokens assigned to the same instance. A compact token-to-patch map restores the spatial grid for the final mask prediction.
 
@@ -42,19 +42,16 @@ python -m pip install -r requirements.txt
 
 ## Train
 
-Start with a dense EoMT checkpoint for the **same dataset, backbone, and input size**. This PanNuke ViT-B example trains dense EoMT from DINOv2 initialization, then fine-tunes with MaskMerge for 15 epochs. The first command downloads pretrained backbone weights through timm.
+Start with the [dense EoMT weights](MODEL_WEIGHTS.md) for the same dataset, backbone, and input size. The paper's recipe warm-starts MaskMerge from this model and fine-tunes with merging enabled for 15 epochs. Local merging runs at block 1. OLAM runs at block 5 for ViT-S/B and block 8 for ViT-L. [Paper training setup](https://arxiv.org/html/2610.22921v1#S4.SS1)
 
 ```bash
 DATA=/path/to/pannuke
-DENSE=configs/instance/pannuke/eomt_base_640_finetune.yaml
+DENSE_CKPT=checkpoints/pannuke-vit-b-dense.pt
 MASKMERGE=configs/instance/pannuke/maskmerge_base.yaml
-
-EOMT_CHECKPOINT_DIR=checkpoints/pannuke_dense python main.py fit \
-  -c "$DENSE" --data.path "$DATA" --trainer.devices 2 --compile_disabled
 
 EOMT_CHECKPOINT_DIR=checkpoints/pannuke_maskmerge python main.py fit \
   -c "$MASKMERGE" --data.path "$DATA" --trainer.devices 2 --compile_disabled \
-  --model.ckpt_path checkpoints/pannuke_dense/last.ckpt
+  --model.ckpt_path "$DENSE_CKPT"
 ```
 
 `--model.ckpt_path` initializes weights for a new training run. Lightning's top-level `--ckpt_path` resumes an interrupted run with its optimizer state. The PanNuke ViT-B configs use 8 images per GPU.
@@ -68,11 +65,11 @@ EOMT_CHECKPOINT_DIR=checkpoints/pannuke_maskmerge python main.py fit \
 | iSAID / DINOv2 ViT-B | [eomt_base_isaid.yaml](configs/instance/isaid/eomt_base_isaid.yaml) | [maskmerge_base.yaml](configs/instance/isaid/maskmerge_base.yaml) |
 | Cityscapes / DINOv2 ViT-B | [eomt_base_512_finetune.yaml](configs/instance/cityscapes/eomt_base_512_finetune.yaml) | [maskmerge_base.yaml](configs/instance/cityscapes/maskmerge_base.yaml) |
 
-The primary configs follow the paper's warm-start schedule and merge positions. The evaluation commands use the checkpoints produced by training. [Checkpoint compatibility and benchmark instructions](REPRODUCTION.md) also cover archived experiment configs.
+To train your own dense initializer, run `python main.py fit` with the matching dense config and dataset path. The first run downloads pretrained backbone weights through timm.
 
 ## Evaluate
 
-For PanNuke or iSAID, run validation with the corresponding MaskMerge config. Set the confidence threshold to its final training value when loading a completed run.
+For released weights, follow the [download and evaluation guide](MODEL_WEIGHTS.md). For weights from your own training run, use its training config and set the merge confidence threshold to the final value.
 
 ```bash
 CKPT=checkpoints/pannuke_maskmerge/last.ckpt
