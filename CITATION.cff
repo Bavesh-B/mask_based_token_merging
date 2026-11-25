@@ -1,0 +1,35 @@
+cff-version: 1.2.0
+message: "If you use MaskMerge in your research, please cite the paper below."
+title: "MaskMerge"
+type: software
+repository-code: "https://github.com/Bavesh-B/mask_based_token_merging"
+url: "https://bavesh-b.github.io/mask_based_token_merging/"
+authors:
+  - family-names: Balaji
+    given-names: Bavesh
+  - family-names: Jiang
+    given-names: Letian
+  - family-names: Wong
+    given-names: Alexander
+  - family-names: Clausi
+    given-names: David
+  - family-names: Rambhatla
+    given-names: Sirisha
+preferred-citation:
+  type: conference-paper
+  title: "MaskMerge: Structure-aware Token Merging for Efficient Instance Segmentation"
+  authors:
+    - family-names: Balaji
+      given-names: Bavesh
+    - family-names: Jiang
+      given-names: Letian
+    - family-names: Wong
+      given-names: Alexander
+    - family-names: Clausi
+      given-names: David
+    - family-names: Rambhatla
+      given-names: Sirisha
+  conference:
+    name: "IEEE/CVF Winter Conference on Applications of Computer Vision"
+  year: 2027
+  url: "https://arxiv.org/abs/2610.22921"

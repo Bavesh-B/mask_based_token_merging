@@ -1,12 +1,12 @@
-# MaskMerge
-
-**Structure-aware Token Merging for Efficient Instance Segmentation**
+# MaskMerge: Structure-aware Token Merging for Efficient Instance Segmentation
 
 Bavesh Balaji · Letian Jiang · Alexander Wong · David Clausi · Sirisha Rambhatla
 
-Accepted to **WACV 2027**. [Project page](https://bavesh-b.github.io/mask_based_token_merging/) · [Paper](https://arxiv.org/abs/2610.22921) · [PDF](https://arxiv.org/pdf/2610.22921) · [WACV accepted papers](https://wacv.thecvf.com/Conferences/2027/AcceptedPapers)
+Accepted to **WACV 2027**. [Project page](https://bavesh-b.github.io/mask_based_token_merging/) · [Paper](https://arxiv.org/abs/2610.22921) · [PDF](https://arxiv.org/pdf/2610.22921) · [Accepted papers](https://wacv.thecvf.com/Conferences/2027/AcceptedPapers)
 
-MaskMerge reduces the cost of ViT-based instance segmentation. It first merges similar tokens in local windows. Object-level adaptive merging (OLAM) then uses intermediate mask predictions to constrain global cosine matching to tokens assigned to the same instance. Weighted averaging and a compact token-to-patch map preserve the information needed to reconstruct the final spatial grid.
+[Results](#paper-results) · [Install](#install) · [Train](#train) · [Evaluate](#evaluate) · [Citation](#citation)
+
+This is the official implementation of **MaskMerge**, a token merging method for efficient instance segmentation. MaskMerge first merges similar tokens in local windows. Object-level adaptive merging (OLAM) uses intermediate mask predictions to constrain global matches to tokens assigned to the same instance. A compact token-to-patch map restores the spatial grid for the final mask prediction.
 
 ![Comparison of ALGM and MaskMerge on adjacent instances](docs/assets/teaser_figure.png)
 
@@ -68,7 +68,7 @@ EOMT_CHECKPOINT_DIR=checkpoints/pannuke_maskmerge python main.py fit \
 | iSAID / DINOv2 ViT-B | [eomt_base_isaid.yaml](configs/instance/isaid/eomt_base_isaid.yaml) | [maskmerge_base.yaml](configs/instance/isaid/maskmerge_base.yaml) |
 | Cityscapes / DINOv2 ViT-B | [eomt_base_512_finetune.yaml](configs/instance/cityscapes/eomt_base_512_finetune.yaml) | [maskmerge_base.yaml](configs/instance/cityscapes/maskmerge_base.yaml) |
 
-The primary configs follow the paper's warm-start schedule and merge positions. [Checkpoint compatibility and benchmark instructions](REPRODUCTION.md) describe the archived experiment configs. Checkpoint files are distributed separately from Git. The commands here use the checkpoints produced by training.
+The primary configs follow the paper's warm-start schedule and merge positions. The evaluation commands use the checkpoints produced by training. [Checkpoint compatibility and benchmark instructions](REPRODUCTION.md) also cover archived experiment configs.
 
 ## Evaluate
 
@@ -91,6 +91,15 @@ python -m scripts.instance.eval_native_instance --tag maskmerge \
 ```
 
 See [benchmarking and baselines](REPRODUCTION.md), the [Mask2Former extension](extensions/mask2former/README.md), and [additional EoMT segmentation tasks](MASKMERGE.md).
+
+## Code
+
+| Path | Contents |
+|---|---|
+| [`models/maskmerge.py`](models/maskmerge.py) | Local merge, OLAM, and token-to-patch bookkeeping |
+| [`configs/instance/`](configs/instance/) | Model, dataset, and training configs |
+| [`scripts/instance/`](scripts/instance/) | Tiled evaluation, throughput, and FLOP measurements |
+| [`extensions/mask2former/`](extensions/mask2former/) | The single-pass Mask2Former extension and its baselines |
 
 ## Citation
 
